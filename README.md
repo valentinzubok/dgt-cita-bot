@@ -39,7 +39,8 @@ Telegram-бот, который следит за свободными дата�
 Переменные окружения на Render: `TELEGRAM_TOKEN`, `DATABASE_URL`, `CHECK_INTERVAL_MIN` (10),
 по желанию `ADMIN_CHAT_ID` (открывает `/admin`) и `ALLOWED_CHAT_IDS`.
 
-Каждый `git push` в `main` автоматически выкатывается на Render.
+Новая версия выкатывается кнопкой **Manual Deploy → Deploy latest commit** на Render
+(автодеплой по `git push` заработает, если добавить репозиторий в GitHub-приложение Render).
 
 ## Локальный запуск
 
