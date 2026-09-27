@@ -1,6 +1,12 @@
-"""Хранилище подписок: Postgres (DATABASE_URL, на сервере) или SQLite-файл (локально)."""
+"""Хранилище подписок: Postgres (DATABASE_URL, на сервере) или SQLite-файл (локально).
+
+Все данные, кроме истории, держим в памяти и пишем в базу только при изменениях:
+бесплатный Neon засыпает без запросов, и частые проверки не должны его будить.
+Рассчитано на один процесс бота.
+"""
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -52,6 +58,11 @@ SCHEMA = [
 ]
 SUB_FIELDS = {"max_days", "paused", "last", "checked_at", "fails"}
 
+_mem = threading.RLock()
+_subs: Dict[int, dict] = {}
+_chats: Dict[int, dict] = {}
+_offices: Dict[Tuple[str, str], Optional[int]] = {}
+
 
 @contextmanager
 def _conn():
@@ -97,93 +108,138 @@ def q1(sql: str, params: tuple = ()) -> Optional[dict]:
     return rows[0] if rows else None
 
 
+def _norm(value):
+    """Приводит результат проверки к виду, в котором он лежит в JSON (кортежи → списки)."""
+    return json.loads(json.dumps(value, ensure_ascii=False)) if value is not None else None
+
+
 def init() -> None:
     for stmt in SCHEMA:
         q(stmt)
-    log.info("хранилище: %s", "Postgres" if PG else f"SQLite ({SQLITE_PATH.name})")
-
-
-def _sub(row: Optional[dict]) -> Optional[dict]:
-    if row is not None:
-        row["last"] = json.loads(row["last"]) if row.get("last") else None
-    return row
+    with _mem:
+        _subs.clear()
+        for row in q("SELECT * FROM subs"):
+            row["last"] = json.loads(row["last"]) if row.get("last") else None
+            _subs[row["id"]] = row
+        _chats.clear()
+        _chats.update({r["chat"]: r for r in q("SELECT * FROM chats")})
+        _offices.clear()
+        _offices.update({(r["centro"], r["area"]): r["open_event"] for r in q("SELECT * FROM offices")})
+    log.info("хранилище: %s, подписок: %d, пользователей: %d",
+             "Postgres" if PG else f"SQLite ({SQLITE_PATH.name})", len(_subs), len(_chats))
 
 
 # ---------- чаты ----------
 
 def ensure_chat(chat: int, name: str) -> None:
-    q("INSERT INTO chats (chat, name, created_at) VALUES (?, ?, ?) ON CONFLICT (chat) DO NOTHING",
-      (chat, name, int(time.time())))
+    with _mem:
+        if chat in _chats:
+            return
+        row = {"chat": chat, "name": name, "quiet": 0, "created_at": int(time.time())}
+        q("INSERT INTO chats (chat, name, quiet, created_at) VALUES (?, ?, 0, ?) ON CONFLICT (chat) DO NOTHING",
+          (chat, name, row["created_at"]))
+        _chats[chat] = row
 
 
 def get_chat(chat: int) -> dict:
-    return q1("SELECT * FROM chats WHERE chat = ?", (chat,)) or {"chat": chat, "quiet": 0}
+    with _mem:
+        return dict(_chats.get(chat) or {"chat": chat, "quiet": 0})
 
 
 def set_quiet(chat: int, quiet: bool) -> None:
-    q("UPDATE chats SET quiet = ? WHERE chat = ?", (int(quiet), chat))
+    with _mem:
+        q("UPDATE chats SET quiet = ? WHERE chat = ?", (int(quiet), chat))
+        if chat in _chats:
+            _chats[chat]["quiet"] = int(quiet)
 
 
 def forget_chat(chat: int) -> None:
-    q("DELETE FROM subs WHERE chat = ?", (chat,))
+    with _mem:
+        if any(s["chat"] == chat for s in _subs.values()):
+            q("DELETE FROM subs WHERE chat = ?", (chat,))
+        for sid in [sid for sid, s in _subs.items() if s["chat"] == chat]:
+            del _subs[sid]
 
 
 # ---------- подписки ----------
 
 def add_sub(chat: int, centro: str, area: str) -> Tuple[dict, bool]:
-    existing = q1("SELECT * FROM subs WHERE chat = ? AND centro = ? AND area = ?", (chat, centro, area))
-    if existing:
-        return _sub(existing), False
-    q("INSERT INTO subs (chat, centro, area, created_at) VALUES (?, ?, ?, ?)",
-      (chat, centro, area, int(time.time())))
-    return _sub(q1("SELECT * FROM subs WHERE chat = ? AND centro = ? AND area = ?", (chat, centro, area))), True
+    with _mem:
+        for s in _subs.values():
+            if (s["chat"], s["centro"], s["area"]) == (chat, centro, area):
+                return copy.deepcopy(s), False
+        q("INSERT INTO subs (chat, centro, area, created_at) VALUES (?, ?, ?, ?)",
+          (chat, centro, area, int(time.time())))
+        row = q1("SELECT * FROM subs WHERE chat = ? AND centro = ? AND area = ?", (chat, centro, area))
+        row["last"] = None
+        _subs[row["id"]] = row
+        return copy.deepcopy(row), True
 
 
 def get_sub(sub_id: int) -> Optional[dict]:
-    return _sub(q1("SELECT * FROM subs WHERE id = ?", (sub_id,)))
+    with _mem:
+        s = _subs.get(sub_id)
+        return copy.deepcopy(s) if s else None
 
 
 def subs_of(chat: int) -> List[dict]:
-    return [_sub(r) for r in q("SELECT * FROM subs WHERE chat = ? ORDER BY id", (chat,))]
+    with _mem:
+        return [copy.deepcopy(s) for sid, s in sorted(_subs.items()) if s["chat"] == chat]
 
 
 def subs_for(centro: str, area: str) -> List[dict]:
-    return [_sub(r) for r in q("SELECT * FROM subs WHERE centro = ? AND area = ?", (centro, area))]
+    with _mem:
+        return [copy.deepcopy(s) for sid, s in sorted(_subs.items()) if (s["centro"], s["area"]) == (centro, area)]
 
 
 def update_sub(sub_id: int, **fields) -> None:
-    fields = {k: v for k, v in fields.items() if k in SUB_FIELDS}
-    if "last" in fields:
-        fields["last"] = json.dumps(fields["last"], ensure_ascii=False) if fields["last"] is not None else None
-    if fields:
-        sets = ", ".join(f"{k} = ?" for k in fields)
-        q(f"UPDATE subs SET {sets} WHERE id = ?", (*fields.values(), sub_id))
+    """Меняет подписку. В базу пишет только то, что реально изменилось (время проверки — только вместе с другим)."""
+    with _mem:
+        cur = _subs.get(sub_id)
+        if cur is None:
+            return
+        fields = {k: (_norm(v) if k == "last" else v) for k, v in fields.items() if k in SUB_FIELDS}
+        changed = {k: v for k, v in fields.items() if cur.get(k) != v}
+        cur.update(changed)
+        persist = {k: v for k, v in changed.items() if k != "checked_at"}
+        if not persist:
+            return
+        persist["checked_at"] = cur.get("checked_at")
+        if "last" in persist:
+            persist["last"] = json.dumps(persist["last"], ensure_ascii=False) if persist["last"] is not None else None
+        sets = ", ".join(f"{k} = ?" for k in persist)
+        q(f"UPDATE subs SET {sets} WHERE id = ?", (*persist.values(), sub_id))
 
 
 def delete_sub(sub_id: int, chat: int) -> None:
-    q("DELETE FROM subs WHERE id = ? AND chat = ?", (sub_id, chat))
+    with _mem:
+        if sub_id in _subs and _subs[sub_id]["chat"] == chat:
+            q("DELETE FROM subs WHERE id = ?", (sub_id,))
+            del _subs[sub_id]
 
 
 def active_keys() -> List[Tuple[str, str]]:
-    return [(r["centro"], r["area"]) for r in
-            q("SELECT DISTINCT centro, area FROM subs WHERE paused = 0 ORDER BY centro, area")]
+    with _mem:
+        return sorted({(s["centro"], s["area"]) for s in _subs.values() if not s["paused"]})
 
 
 # ---------- история появления мест ----------
 
 def office_changed(centro: str, area: str, available: bool, days: int) -> None:
     """Отмечает момент, когда в офисе появились или закончились места."""
-    now = int(time.time())
-    row = q1("SELECT open_event FROM offices WHERE centro = ? AND area = ?", (centro, area))
-    open_event = row["open_event"] if row else None
-    if available and not open_event:
-        q("INSERT INTO events (centro, area, opened_at, days) VALUES (?, ?, ?, ?)", (centro, area, now, days))
-        ev = q1("SELECT MAX(id) AS id FROM events WHERE centro = ? AND area = ?", (centro, area))
-        q("INSERT INTO offices (centro, area, open_event) VALUES (?, ?, ?) "
-          "ON CONFLICT (centro, area) DO UPDATE SET open_event = excluded.open_event", (centro, area, ev["id"]))
-    elif not available and open_event:
-        q("UPDATE events SET closed_at = ? WHERE id = ?", (now, open_event))
-        q("UPDATE offices SET open_event = NULL WHERE centro = ? AND area = ?", (centro, area))
+    with _mem:
+        open_event = _offices.get((centro, area))
+        now = int(time.time())
+        if available and not open_event:
+            q("INSERT INTO events (centro, area, opened_at, days) VALUES (?, ?, ?, ?)", (centro, area, now, days))
+            ev = q1("SELECT MAX(id) AS id FROM events WHERE centro = ? AND area = ?", (centro, area))["id"]
+            q("INSERT INTO offices (centro, area, open_event) VALUES (?, ?, ?) "
+              "ON CONFLICT (centro, area) DO UPDATE SET open_event = excluded.open_event", (centro, area, ev))
+            _offices[(centro, area)] = ev
+        elif not available and open_event:
+            q("UPDATE events SET closed_at = ? WHERE id = ?", (now, open_event))
+            q("UPDATE offices SET open_event = NULL WHERE centro = ? AND area = ?", (centro, area))
+            _offices[(centro, area)] = None
 
 
 def events(centro: str, area: str, limit: int = 30) -> List[dict]:
@@ -192,8 +248,5 @@ def events(centro: str, area: str, limit: int = 30) -> List[dict]:
 
 
 def totals() -> Dict[str, int]:
-    return {
-        "chats": q1("SELECT COUNT(*) AS n FROM chats")["n"],
-        "subs": q1("SELECT COUNT(*) AS n FROM subs")["n"],
-        "offices": len(active_keys()),
-    }
+    with _mem:
+        return {"chats": len(_chats), "subs": len(_subs), "offices": len(active_keys())}
