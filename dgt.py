@@ -22,12 +22,16 @@ TIMEOUT = (15, 60)
 PAUSE = (0.8, 2.0)   # пауза между запросами одной проверки — сайт не любит частые обращения
 MAX_MONTHS = 3       # сколько месяцев календаря просматривать
 
-AREAS = {
+# Области (тип записи), которые встречались на сайте. У каждого офиса свой набор — его отдаёт list_areas().
+AREA_LABELS = {
     "VEH": "Vehículos",
     "CND": "Conductores",
-    "MAT": "Matriculación",
+    "CYV": "Conductores / Vehículos",
+    "MAT": "Matriculación de vehículos",
     "SAN": "Sanciones",
     "CNJ": "Canjes",
+    "EXM": "Exámenes permisos de conducir",
+    "RPC": "Renovación de permisos de conducción (solo UE/EE)",
 }
 
 MONTHS_ES = {
@@ -110,8 +114,8 @@ def list_centros() -> Dict[str, str]:
 
 # ---------- шаг 1: центр → область → каталог ----------
 
-def _open_catalog(b: _Browser, centro: str, area: str) -> Optional[str]:
-    """Выбирает центр и область, жмёт «Continuar». Возвращает HTML каталога или None, если области нет."""
+def _select_centro(b: _Browser, centro: str):
+    """Открывает стартовую страницу и выбирает офис. Возвращает всё, что нужно для следующего шага."""
     t = b.get(START_URL)
     vs = _viewstate(t)
     sel = _must(r'<select id="(formselectorCentro:[^"]+)"', t, "список центров")
@@ -135,7 +139,21 @@ def _open_catalog(b: _Browser, centro: str, area: str) -> Optional[str]:
     area_sel = next((x for x in re.findall(r'<select id="(formselectorCentro:[^"]+)"', t) if x != sel), None)
     if not area_sel:
         raise DGTError("не появился список областей")
-    if f'value="{area}"' not in t.split(area_sel, 1)[1].split("</select>", 1)[0]:
+    block = t.split(f'<select id="{area_sel}"', 1)[1].split("</select>", 1)[0]
+    areas = [(v, html.unescape(n).strip()) for v, n in re.findall(r'<option value="([^"]*)"[^>]*>([^<]+)</option>', block) if v]
+    AREA_LABELS.update(areas)
+    return ajax, vs, sel, area_sel, areas
+
+
+def list_areas(centro: str) -> List[Tuple[str, str]]:
+    """Области (тип записи), которые есть в офисе: [(код, название)]."""
+    return _select_centro(_Browser(), centro)[4]
+
+
+def _open_catalog(b: _Browser, centro: str, area: str) -> Optional[str]:
+    """Выбирает центр и область, жмёт «Continuar». Возвращает HTML каталога или None, если области нет."""
+    ajax, vs, sel, area_sel, areas = _select_centro(b, centro)
+    if area not in dict(areas):
         return None
 
     t = ajax(area_sel, {sel: centro, area_sel: area}, vs)

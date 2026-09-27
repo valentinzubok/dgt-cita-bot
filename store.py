@@ -1,6 +1,6 @@
-"""Хранилище подписок: Postgres (DATABASE_URL, на сервере) или SQLite-файл (локально).
+"""Хранилище: Postgres (DATABASE_URL, на сервере) или SQLite-файл (локально).
 
-Все данные, кроме истории, держим в памяти и пишем в базу только при изменениях:
+Пользователи, подписки и настройки лежат в памяти, в базу пишутся только изменения:
 бесплатный Neon засыпает без запросов, и частые проверки не должны его будить.
 Рассчитано на один процесс бота.
 """
@@ -16,6 +16,8 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+import config
 
 log = logging.getLogger("store")
 
@@ -55,13 +57,34 @@ SCHEMA = [
         opened_at BIGINT NOT NULL,
         closed_at BIGINT,
         days INTEGER)""",
+    """CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT)""",
 ]
-SUB_FIELDS = {"max_days", "paused", "last", "checked_at", "fails"}
+# Колонки, добавленные после первой версии
+MIGRATIONS = [
+    ("chats", "username", "TEXT"),
+    ("chats", "role", "TEXT NOT NULL DEFAULT 'user'"),
+    ("chats", "screen", "BIGINT"),
+    ("chats", "last_seen", "BIGINT"),
+    ("subs", "area_label", "TEXT"),
+    ("subs", "alert_msg", "BIGINT"),
+]
+SUB_FIELDS = {"max_days", "paused", "last", "checked_at", "fails", "alert_msg", "area_label"}
+CHAT_FIELDS = {"name", "username", "quiet", "role", "screen", "last_seen"}
+DEFAULTS = {
+    "interval": config.DEFAULT_INTERVAL,  # минут между проверками
+    "max_subs": 5,                         # подписок на человека
+    "checks_paused": 0,                    # 1 — проверки остановлены
+    "access": "open",                      # open | approval
+    "notify_new": 1,                       # писать админам о новых пользователях
+}
 
 _mem = threading.RLock()
 _subs: Dict[int, dict] = {}
 _chats: Dict[int, dict] = {}
 _offices: Dict[Tuple[str, str], Optional[int]] = {}
+_settings: Dict[str, object] = dict(DEFAULTS)
 
 
 @contextmanager
@@ -108,6 +131,13 @@ def q1(sql: str, params: tuple = ()) -> Optional[dict]:
     return rows[0] if rows else None
 
 
+def _columns(table: str) -> set:
+    if PG:
+        return {r["column_name"] for r in
+                q("SELECT column_name FROM information_schema.columns WHERE table_name = ?", (table,))}
+    return {r["name"] for r in q(f"PRAGMA table_info({table})")}
+
+
 def _norm(value):
     """Приводит результат проверки к виду, в котором он лежит в JSON (кортежи → списки)."""
     return json.loads(json.dumps(value, ensure_ascii=False)) if value is not None else None
@@ -116,6 +146,12 @@ def _norm(value):
 def init() -> None:
     for stmt in SCHEMA:
         q(stmt)
+    existing: Dict[str, set] = {}
+    for table, col, decl in MIGRATIONS:
+        if table not in existing:
+            existing[table] = _columns(table)
+        if col not in existing[table]:
+            q(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
     with _mem:
         _subs.clear()
         for row in q("SELECT * FROM subs"):
@@ -125,35 +161,81 @@ def init() -> None:
         _chats.update({r["chat"]: r for r in q("SELECT * FROM chats")})
         _offices.clear()
         _offices.update({(r["centro"], r["area"]): r["open_event"] for r in q("SELECT * FROM offices")})
+        _settings.clear()
+        _settings.update(DEFAULTS)
+        for r in q("SELECT * FROM settings"):
+            default = DEFAULTS.get(r["key"])
+            _settings[r["key"]] = int(r["value"]) if isinstance(default, int) else r["value"]
     log.info("хранилище: %s, подписок: %d, пользователей: %d",
              "Postgres" if PG else f"SQLite ({SQLITE_PATH.name})", len(_subs), len(_chats))
 
 
-# ---------- чаты ----------
+# ---------- настройки бота ----------
 
-def ensure_chat(chat: int, name: str) -> None:
+def setting(key: str):
     with _mem:
-        if chat in _chats:
-            return
-        row = {"chat": chat, "name": name, "quiet": 0, "created_at": int(time.time())}
-        q("INSERT INTO chats (chat, name, quiet, created_at) VALUES (?, ?, 0, ?) ON CONFLICT (chat) DO NOTHING",
-          (chat, name, row["created_at"]))
-        _chats[chat] = row
+        return _settings.get(key, DEFAULTS.get(key))
+
+
+def set_setting(key: str, value) -> None:
+    with _mem:
+        q("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+          (key, str(value)))
+        _settings[key] = value
+
+
+# ---------- пользователи ----------
+
+def touch_chat(chat: int, name: str, username: str) -> Tuple[dict, bool]:
+    """Регистрирует пользователя или обновляет имя. Возвращает (chat, новый ли)."""
+    now = int(time.time())
+    with _mem:
+        row = _chats.get(chat)
+        if row is None:
+            row = {"chat": chat, "name": name, "username": username, "quiet": 0, "role": "user",
+                   "screen": None, "last_seen": now, "created_at": now}
+            q("INSERT INTO chats (chat, name, username, quiet, role, last_seen, created_at) "
+              "VALUES (?, ?, ?, 0, 'user', ?, ?) ON CONFLICT (chat) DO NOTHING",
+              (chat, name, username, now, now))
+            _chats[chat] = row
+            return dict(row), True
+        changes = {}
+        if name and row.get("name") != name:
+            changes["name"] = name
+        if (username or None) != row.get("username"):
+            changes["username"] = username or None
+        if now - (row.get("last_seen") or 0) > 3600:  # «был в сети» — с точностью до часа
+            changes["last_seen"] = now
+        if changes:
+            set_chat(chat, **changes)
+        return dict(_chats[chat]), False
 
 
 def get_chat(chat: int) -> dict:
     with _mem:
-        return dict(_chats.get(chat) or {"chat": chat, "quiet": 0})
+        return dict(_chats.get(chat) or {"chat": chat, "quiet": 0, "role": "user"})
 
 
-def set_quiet(chat: int, quiet: bool) -> None:
+def set_chat(chat: int, **fields) -> None:
+    fields = {k: v for k, v in fields.items() if k in CHAT_FIELDS}
     with _mem:
-        q("UPDATE chats SET quiet = ? WHERE chat = ?", (int(quiet), chat))
-        if chat in _chats:
-            _chats[chat]["quiet"] = int(quiet)
+        row = _chats.get(chat)
+        if row is None or not fields:
+            return
+        changed = {k: v for k, v in fields.items() if row.get(k) != v}
+        if changed:
+            row.update(changed)
+            sets = ", ".join(f"{k} = ?" for k in changed)
+            q(f"UPDATE chats SET {sets} WHERE chat = ?", (*changed.values(), chat))
+
+
+def all_chats() -> List[dict]:
+    with _mem:
+        return sorted((dict(c) for c in _chats.values()), key=lambda c: -(c.get("created_at") or 0))
 
 
 def forget_chat(chat: int) -> None:
+    """Удаляет все подписки пользователя."""
     with _mem:
         if any(s["chat"] == chat for s in _subs.values()):
             q("DELETE FROM subs WHERE chat = ?", (chat,))
@@ -163,13 +245,13 @@ def forget_chat(chat: int) -> None:
 
 # ---------- подписки ----------
 
-def add_sub(chat: int, centro: str, area: str) -> Tuple[dict, bool]:
+def add_sub(chat: int, centro: str, area: str, area_label: str) -> Tuple[dict, bool]:
     with _mem:
         for s in _subs.values():
             if (s["chat"], s["centro"], s["area"]) == (chat, centro, area):
                 return copy.deepcopy(s), False
-        q("INSERT INTO subs (chat, centro, area, created_at) VALUES (?, ?, ?, ?)",
-          (chat, centro, area, int(time.time())))
+        q("INSERT INTO subs (chat, centro, area, area_label, created_at) VALUES (?, ?, ?, ?, ?)",
+          (chat, centro, area, area_label, int(time.time())))
         row = q1("SELECT * FROM subs WHERE chat = ? AND centro = ? AND area = ?", (chat, centro, area))
         row["last"] = None
         _subs[row["id"]] = row
@@ -182,14 +264,17 @@ def get_sub(sub_id: int) -> Optional[dict]:
         return copy.deepcopy(s) if s else None
 
 
-def subs_of(chat: int) -> List[dict]:
+def all_subs() -> List[dict]:
     with _mem:
-        return [copy.deepcopy(s) for sid, s in sorted(_subs.items()) if s["chat"] == chat]
+        return [copy.deepcopy(s) for _, s in sorted(_subs.items())]
+
+
+def subs_of(chat: int) -> List[dict]:
+    return [s for s in all_subs() if s["chat"] == chat]
 
 
 def subs_for(centro: str, area: str) -> List[dict]:
-    with _mem:
-        return [copy.deepcopy(s) for sid, s in sorted(_subs.items()) if (s["centro"], s["area"]) == (centro, area)]
+    return [s for s in all_subs() if (s["centro"], s["area"]) == (centro, area)]
 
 
 def update_sub(sub_id: int, **fields) -> None:
@@ -211,16 +296,29 @@ def update_sub(sub_id: int, **fields) -> None:
         q(f"UPDATE subs SET {sets} WHERE id = ?", (*persist.values(), sub_id))
 
 
-def delete_sub(sub_id: int, chat: int) -> None:
+def delete_sub(sub_id: int) -> None:
     with _mem:
-        if sub_id in _subs and _subs[sub_id]["chat"] == chat:
+        if sub_id in _subs:
             q("DELETE FROM subs WHERE id = ?", (sub_id,))
             del _subs[sub_id]
 
 
+def pause_chat(chat: int) -> None:
+    for s in subs_of(chat):
+        update_sub(s["id"], paused=1)
+
+
 def active_keys() -> List[Tuple[str, str]]:
     with _mem:
-        return sorted({(s["centro"], s["area"]) for s in _subs.values() if not s["paused"]})
+        banned = {c for c, row in _chats.items() if row.get("role") in ("banned", "pending")}
+        return sorted({(s["centro"], s["area"]) for s in _subs.values()
+                       if not s["paused"] and s["chat"] not in banned})
+
+
+def area_labels() -> Dict[str, str]:
+    """Названия областей из подписок — чтобы после перезапуска не терять подписи."""
+    with _mem:
+        return {s["area"]: s["area_label"] for s in _subs.values() if s.get("area_label")}
 
 
 # ---------- история появления мест ----------
@@ -245,8 +343,3 @@ def office_changed(centro: str, area: str, available: bool, days: int) -> None:
 def events(centro: str, area: str, limit: int = 30) -> List[dict]:
     return q("SELECT * FROM events WHERE centro = ? AND area = ? ORDER BY opened_at DESC LIMIT ?",
              (centro, area, limit))
-
-
-def totals() -> Dict[str, int]:
-    with _mem:
-        return {"chats": len(_chats), "subs": len(_subs), "offices": len(active_keys())}
