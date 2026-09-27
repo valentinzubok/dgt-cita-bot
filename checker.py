@@ -6,7 +6,7 @@ import random
 import threading
 import time
 from collections import deque
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 import requests
@@ -88,7 +88,7 @@ def process(cid: str, area: str, results: Optional[list], err, cards: Dict[int, 
         if days and not st.get("days"):
             event(f"🟢 Появились даты: {name} — {len(days)} дн.")
         st.update(fails=0, status=results[0]["status"] if results else dgt.UNKNOWN, days=len(days),
-                  at=int(time.time()))
+                  at=int(time.time()), results=results)
         store.office_changed(cid, area, bool(days), len(days))
 
     now = int(time.time())
@@ -143,6 +143,36 @@ def loop() -> None:
         wait = max(60.0, int(store.setting("interval")) * 60 * random.uniform(0.9, 1.1) - (time.time() - started))
         status["next_cycle"] = int(time.time() + wait)
         time.sleep(wait)
+
+
+def reminders() -> None:
+    """Напоминания о визите: накануне в 19:00 и утром в день визита."""
+    while True:
+        try:
+            send_reminders()
+        except Exception:
+            log.exception("ошибка напоминаний")
+        time.sleep(300)
+
+
+def send_reminders() -> None:
+    now = datetime.now(config.TZ)
+    for sub in store.all_subs():
+        if not sub.get("booked_date") or store.get_chat(sub["chat"]).get("role") in ("banned", "pending"):
+            continue
+        day, bits = date.fromisoformat(sub["booked_date"]), sub.get("reminded") or 0
+        if day - timedelta(days=1) == now.date() and now.hour >= 19 and not bits & 1:
+            when, bits = "eve", bits | 1
+        elif day == now.date() and now.hour >= 8 and not bits & 2:
+            when, bits = "day", bits | 3
+            if sub.get("booked_time") and sub["booked_time"] <= now.strftime("%H:%M"):
+                store.update_sub(sub["id"], reminded=bits)  # визит уже прошёл — не напоминаем
+                continue
+        else:
+            continue
+        tg.delete(sub["chat"], sub.get("alert_msg"))
+        mid = tg.send(sub["chat"], *views.reminder(sub, when))
+        store.update_sub(sub["id"], reminded=bits, alert_msg=mid)
 
 
 def keepalive() -> None:

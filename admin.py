@@ -46,6 +46,8 @@ def panel() -> Tuple[str, dict]:
     active_week = sum(1 for c in chats if (c.get("last_seen") or 0) > now - 7 * 86400)
     open_now = sum(1 for k in keys if checker.offices.get(k, {}).get("days"))
     waiting = sum(1 for c in chats if c.get("role") == "pending")
+    booked = sum(1 for x in subs if x.get("booked_date"))
+    langs = sum(1 for c in chats if c.get("lang") == "uk")
     if store.setting("checks_paused"):
         timing = "⏸ проверки остановлены"
     elif s["next_cycle"]:
@@ -58,7 +60,9 @@ def panel() -> Tuple[str, dict]:
         f"👥 Пользователи: <b>{len(chats)}</b> · +{new_day} за сутки · активны за неделю: {active_week}\n"
         f"📋 Подписки: <b>{len(subs)}</b> · офисов в проверке: {len(keys)}/{config.MAX_OFFICES}\n"
         f"🟢 Офисов с датами сейчас: <b>{open_now}</b>\n"
-        f"🔔 Уведомлений отправлено: {s['alerts']}"
+        f"🔔 Уведомлений отправлено: {s['alerts']}\n"
+        f"✅ Записались через бота: <b>{booked}</b>\n"
+        f"🌐 Язык: 🇺🇦 {langs} · 🇷🇺 {len(chats) - langs}"
         + (f"\n🙋 Ждут одобрения: <b>{waiting}</b>" if waiting else "")
         + "</blockquote>\n"
         "<blockquote>"
@@ -75,7 +79,7 @@ def panel() -> Tuple[str, dict]:
         [btn("👥 Пользователи", "ad:u:0"), btn("🏢 Офисы", "ad:o")],
         [btn("📢 Рассылка", "ad:b"), btn("⚙️ Настройки", "ad:s")],
         [btn("📜 Журнал", "ad:l"), btn("🔄 Обновить", "ad")],
-        [views.HOME],
+        [views.home_btn("ru")],
     ])
 
 
@@ -103,12 +107,13 @@ def user_card(target: int, viewer: int, note: str = "") -> Tuple[str, dict]:
     joined = datetime.fromtimestamp(c["created_at"], config.TZ).strftime("%d.%m.%Y") if c.get("created_at") else "—"
     lines = [f"👤 <b>{uname(c)}</b>",
              "<blockquote>"
-             f"🆔 <code>{target}</code>\n🎭 Роль: {role}\n📅 С нами с {joined}\n"
+             f"🆔 <code>{target}</code>\n🎭 Роль: {role}\n🌐 Язык: {views.LANGS.get(c.get('lang') or '', 'не выбран')}\n"
+             f"📅 С нами с {joined}\n"
              f"👀 Был в боте {fmt_ts(c['last_seen']) if c.get('last_seen') else '—'}"
              "</blockquote>"]
     if subs:
         lines.append(f"📋 <b>Подписки</b> · {len(subs)}")
-        lines.append("<blockquote>" + "\n".join(f"{views.summary(s)[0]} {views.title(s)} — {views.summary(s)[1]}"
+        lines.append("<blockquote>" + "\n".join(f"{views.summary(s, 'ru')[0]} {views.title(s)} — {views.summary(s, 'ru')[1]}"
                                                  for s in subs) + "</blockquote>")
     else:
         lines.append("Подписок нет.")
@@ -371,9 +376,11 @@ def user_action(chat: int, mid: int, kind: str, target: int) -> Optional[str]:
         store.set_chat(target, role="user" if approved else "banned")
         checker.event(f"{'✅ Одобрен' if approved else '🚫 Отклонён'}: {who}")
         if approved:
+            lang = views.lang_of(target)
             tg.show(target, *views.dashboard(target, c.get("name") or "", checker.status.get("next_cycle"),
-                                             "✅ <b>Доступ открыт!</b> Добро пожаловать."))
+                                             views.tx(lang, "✅ <b>Доступ открыт!</b> Добро пожаловать.",
+                                                      "✅ <b>Доступ відкрито!</b> Ласкаво просимо.")))
         else:
-            tg.show(target, *views.banned_view())
+            tg.show(target, *views.banned_view(views.lang_of(target)))
     tg.show(chat, *user_card(target, chat), mid=mid)
     return None

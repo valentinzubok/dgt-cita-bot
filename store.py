@@ -60,6 +60,10 @@ SCHEMA = [
     """CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
         value TEXT)""",
+    """CREATE TABLE IF NOT EXISTS office_areas (
+        centro TEXT PRIMARY KEY,
+        data TEXT NOT NULL,
+        updated_at BIGINT NOT NULL)""",
 ]
 # Колонки, добавленные после первой версии
 MIGRATIONS = [
@@ -69,9 +73,14 @@ MIGRATIONS = [
     ("chats", "last_seen", "BIGINT"),
     ("subs", "area_label", "TEXT"),
     ("subs", "alert_msg", "BIGINT"),
+    ("chats", "lang", "TEXT"),
+    ("subs", "booked_date", "TEXT"),
+    ("subs", "booked_time", "TEXT"),
+    ("subs", "reminded", "INTEGER NOT NULL DEFAULT 0"),
 ]
-SUB_FIELDS = {"max_days", "paused", "last", "checked_at", "fails", "alert_msg", "area_label"}
-CHAT_FIELDS = {"name", "username", "quiet", "role", "screen", "last_seen"}
+SUB_FIELDS = {"max_days", "paused", "last", "checked_at", "fails", "alert_msg", "area_label",
+              "booked_date", "booked_time", "reminded"}
+CHAT_FIELDS = {"name", "username", "quiet", "role", "screen", "last_seen", "lang"}
 DEFAULTS = {
     "interval": config.DEFAULT_INTERVAL,  # минут между проверками
     "max_subs": 5,                         # подписок на человека
@@ -85,6 +94,7 @@ _subs: Dict[int, dict] = {}
 _chats: Dict[int, dict] = {}
 _offices: Dict[Tuple[str, str], Optional[int]] = {}
 _settings: Dict[str, object] = dict(DEFAULTS)
+_areas: Dict[str, Tuple[int, list]] = {}
 
 
 @contextmanager
@@ -161,6 +171,8 @@ def init() -> None:
         _chats.update({r["chat"]: r for r in q("SELECT * FROM chats")})
         _offices.clear()
         _offices.update({(r["centro"], r["area"]): r["open_event"] for r in q("SELECT * FROM offices")})
+        _areas.clear()
+        _areas.update({r["centro"]: (r["updated_at"], json.loads(r["data"])) for r in q("SELECT * FROM office_areas")})
         _settings.clear()
         _settings.update(DEFAULTS)
         for r in q("SELECT * FROM settings"):
@@ -193,7 +205,7 @@ def touch_chat(chat: int, name: str, username: str) -> Tuple[dict, bool]:
         row = _chats.get(chat)
         if row is None:
             row = {"chat": chat, "name": name, "username": username, "quiet": 0, "role": "user",
-                   "screen": None, "last_seen": now, "created_at": now}
+                   "screen": None, "last_seen": now, "created_at": now, "lang": None}
             q("INSERT INTO chats (chat, name, username, quiet, role, last_seen, created_at) "
               "VALUES (?, ?, ?, 0, 'user', ?, ?) ON CONFLICT (chat) DO NOTHING",
               (chat, name, username, now, now))
@@ -319,6 +331,22 @@ def area_labels() -> Dict[str, str]:
     """Названия областей из подписок — чтобы после перезапуска не терять подписи."""
     with _mem:
         return {s["area"]: s["area_label"] for s in _subs.values() if s.get("area_label")}
+
+
+def office_areas(centro: str) -> Optional[Tuple[int, list]]:
+    """Типы записи офиса из кэша: (когда получены, [(код, название)])."""
+    with _mem:
+        cached = _areas.get(centro)
+        return (cached[0], [tuple(x) for x in cached[1]]) if cached else None
+
+
+def save_office_areas(centro: str, areas: list) -> None:
+    now = int(time.time())
+    with _mem:
+        q("INSERT INTO office_areas (centro, data, updated_at) VALUES (?, ?, ?) ON CONFLICT (centro) "
+          "DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
+          (centro, json.dumps(areas, ensure_ascii=False), now))
+        _areas[centro] = (now, [list(x) for x in areas])
 
 
 # ---------- история появления мест ----------
