@@ -554,7 +554,9 @@ def keepalive_loop() -> None:
 
 def refresh_centros() -> None:
     try:
+        started = time.time()
         fresh = dgt.list_centros()
+        log.info("сайт DGT доступен (%.1f с), офисов: %d", time.time() - started, len(fresh))
         added = set(fresh) - set(dgt.CENTROS)
         dgt.CENTROS.update(fresh)
         if added:
