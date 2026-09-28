@@ -85,10 +85,11 @@ MIGRATIONS = [
     ("subs", "reminded", "INTEGER NOT NULL DEFAULT 0"),
     ("chats", "alerts", "INTEGER NOT NULL DEFAULT 0"),
     ("chats", "bookings", "INTEGER NOT NULL DEFAULT 0"),
+    ("chats", "source", "TEXT"),
 ]
 SUB_FIELDS = {"max_days", "paused", "last", "checked_at", "fails", "alert_msg", "area_label",
               "booked_date", "booked_time", "reminded"}
-CHAT_FIELDS = {"name", "username", "quiet", "role", "screen", "last_seen", "lang", "alerts", "bookings"}
+CHAT_FIELDS = {"name", "username", "quiet", "role", "screen", "last_seen", "lang", "alerts", "bookings", "source"}
 DEFAULTS = {
     "interval": config.DEFAULT_INTERVAL,  # минут между проверками
     "max_subs": 5,                         # подписок на человека

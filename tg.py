@@ -19,7 +19,8 @@ def call(method: str, **params) -> Optional[dict]:
         log.warning("telegram %s: %r", method, e)
         return None
     if not data.get("ok") and not any(s in data.get("description", "") for s in
-                                      ("not modified", "message to delete not found", "message can't be deleted")):
+                                      ("not modified", "message to delete not found", "message can't be deleted",
+                                       "message to edit not found", "message can't be edited")):
         log.warning("telegram %s: %s", method, data.get("description"))
     return data
 

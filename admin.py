@@ -112,6 +112,10 @@ def analytics() -> Tuple[str, dict]:
     pct = lambda n: f"{round(n / len(chats) * 100)}%" if chats else "—"  # noqa: E731
     uk = sum(1 for c in chats if c.get("lang") == "uk")
 
+    sources: Dict[str, int] = {}
+    for c in chats:
+        sources[c.get("source") or "без метки"] = sources.get(c.get("source") or "без метки", 0) + 1
+    src_lines = [f"{esc(k)} — {v}" for k, v in sorted(sources.items(), key=lambda kv: -kv[1])[:8]]
     popular = sorted(store.popularity().items(), key=lambda kv: -kv[1])[:5]
     top_lines = [f"{i + 1}. {esc(views.city(cid))} · {esc(views.area_label(area))} — 👥 {n}"
                  for i, ((cid, area), n) in enumerate(popular)] or ["пока пусто"]
@@ -127,6 +131,7 @@ def analytics() -> Tuple[str, dict]:
         f"✅ Записались: <b>{booked}</b> · {pct(booked)}</blockquote>\n"
         f"🌐 Языки: 🇺🇦 {uk} · 🇷🇺 {with_lang - uk} · не выбран {len(chats) - with_lang}\n\n"
         "<b>Топ офисов по подпискам</b>\n<blockquote>" + "\n".join(top_lines) + "</blockquote>\n"
+        "<b>Откуда пришли</b> (ссылка t.me/oksitabot?start=метка)\n<blockquote>" + "\n".join(src_lines) + "</blockquote>\n"
         "<i>нов — новые пользователи, подп — подписки, увед — уведомления, зап — записались, рад — радары.</i>"
     )
     return text, ikb([[btn("🔄 Обновить", "ad:an"), BACK]])
@@ -203,7 +208,8 @@ def user_card(target: int, viewer: int, note: str = "") -> Tuple[str, dict]:
     lines = [f"👤 <b>{uname(c)}</b>",
              "<blockquote>"
              f"🆔 <code>{target}</code> · 🎭 {role}\n"
-             f"🌐 Язык: {views.LANGS.get(c.get('lang') or '', 'не выбран')}\n"
+             f"🌐 Язык: {views.LANGS.get(c.get('lang') or '', 'не выбран')}"
+             + (f" · 🔗 {esc(c['source'])}" if c.get("source") else "") + "\n"
              f"📅 С нами с {joined} · 👀 был {fmt_ts(c['last_seen']) if c.get('last_seen') else '—'}\n"
              f"🔔 Уведомлений получил: {c.get('alerts') or 0} · ✅ записывался: {c.get('bookings') or 0}"
              "</blockquote>"]
@@ -366,9 +372,9 @@ def export(chat: int) -> None:
     per_chat: Dict[int, int] = {}
     for s in subs:
         per_chat[s["chat"]] = per_chat.get(s["chat"], 0) + 1
-    users_csv = to_csv(["chat_id", "name", "username", "lang", "role", "joined", "last_seen", "subs", "alerts", "bookings"],
+    users_csv = to_csv(["chat_id", "name", "username", "lang", "role", "source", "joined", "last_seen", "subs", "alerts", "bookings"],
                        [[c["chat"], c.get("name") or "", c.get("username") or "", c.get("lang") or "", c.get("role"),
-                         day(c.get("created_at")), day(c.get("last_seen")), per_chat.get(c["chat"], 0),
+                         c.get("source") or "", day(c.get("created_at")), day(c.get("last_seen")), per_chat.get(c["chat"], 0),
                          c.get("alerts") or 0, c.get("bookings") or 0] for c in store.all_chats()])
     subs_csv = to_csv(["id", "chat_id", "office", "area", "status", "paused", "max_days", "booked_date", "booked_time", "created"],
                       [[s["id"], s["chat"], views.city(s["centro"]), views.sub_area(s), views.summary(s, "ru")[1],

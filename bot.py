@@ -183,7 +183,7 @@ def parse_booking(text: str) -> Optional[Tuple[str, Optional[str]]]:
 
 
 def on_new_user(chat: int, c: dict) -> None:
-    who = admin.uname(c)
+    who = admin.uname(c) + (f" · источник <code>{views.esc(c['source'])}</code>" if c.get("source") else "")
     store.bump("new_users")
     checker.event(f"👤 Новый пользователь: {c.get('name') or chat}", "user")
     if views.is_admin(chat):
@@ -207,6 +207,10 @@ def on_message(msg: dict) -> None:
     frm = msg.get("from", {})
     c, is_new = store.touch_chat(chat, frm.get("first_name", ""), frm.get("username", ""))
     if is_new:
+        start_arg = (msg.get("text") or "").partition(" ")[2].strip()
+        if re.fullmatch(r"[A-Za-z0-9_-]{1,40}", start_arg):  # t.me/oksitabot?start=fb_alicante — откуда пришёл
+            store.set_chat(chat, source=start_arg)
+            c = store.get_chat(chat)
         on_new_user(chat, c)
         c = store.get_chat(chat)
     if views.is_admin(chat) and admin.handle_input(msg):
