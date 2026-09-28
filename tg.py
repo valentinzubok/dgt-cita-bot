@@ -54,6 +54,17 @@ def delete(chat: int, mid: Optional[int]) -> bool:
     return edit(chat, mid, "·")
 
 
+def send_document(chat: int, filename: str, content: bytes, caption: str = "") -> bool:
+    try:
+        data = requests.post(config.API + "sendDocument", timeout=70,
+                             data={"chat_id": chat, "caption": caption, "parse_mode": "HTML"},
+                             files={"document": (filename, content)}).json()
+    except Exception as e:
+        log.warning("telegram sendDocument: %r", e)
+        return False
+    return bool(data.get("ok"))
+
+
 def answer(cb_id: str, text: str = "", alert: bool = False) -> None:
     p = {"callback_query_id": cb_id}
     if text:

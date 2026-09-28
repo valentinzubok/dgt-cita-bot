@@ -9,6 +9,7 @@ import config  # noqa: F401 — первым: читает .env до остал�
 import json
 import logging
 import re
+import signal
 import sys
 import threading
 import time
@@ -114,7 +115,8 @@ def subscribe(chat: int, mid: int, cid: str, area: str) -> None:
                   + f"🏢 {views.title(sub)}\n\n"
                   + tx(lang, "⏳ Делаю первую проверку — около минуты…", "⏳ Роблю першу перевірку — близько хвилини…"),
                   ikb([]), mid=mid)
-    checker.event(f"➕ Подписка: {views.plain_title(sub)} ({store.get_chat(chat).get('name') or chat})")
+    store.bump("subs")
+    checker.event(f"➕ Подписка: {views.plain_title(sub)} ({store.get_chat(chat).get('name') or chat})", "user")
     threading.Thread(target=checker.run_checks, args=([(cid, area)], {chat: mid}), daemon=True).start()
 
 
@@ -154,7 +156,9 @@ def save_booking(chat: int, mid: Optional[int], sub: dict, iso: str, hhmm: Optio
     bits = 3 if day <= now.date() else 1 if (day - now.date()).days == 1 and now.hour >= 19 else 0
     tg.delete(chat, sub.get("alert_msg"))
     store.update_sub(sub["id"], booked_date=iso, booked_time=hhmm, reminded=bits, paused=1, alert_msg=None)
-    checker.event(f"✅ Записался: {store.get_chat(chat).get('name') or chat} — {views.plain_title(sub)} {iso}")
+    store.bump("bookings")
+    store.bump_chat(chat, "bookings")
+    checker.event(f"✅ Записался: {store.get_chat(chat).get('name') or chat} — {views.plain_title(sub)} {iso}", "user")
     tg.show(chat, *views.card(store.get_sub(sub["id"])), mid=mid)
 
 
@@ -180,7 +184,8 @@ def parse_booking(text: str) -> Optional[Tuple[str, Optional[str]]]:
 
 def on_new_user(chat: int, c: dict) -> None:
     who = admin.uname(c)
-    checker.event(f"👤 Новый пользователь: {c.get('name') or chat}")
+    store.bump("new_users")
+    checker.event(f"👤 Новый пользователь: {c.get('name') or chat}", "user")
     if views.is_admin(chat):
         return
     card = [btn("👤 Карточка", f"ad:uc:{chat}")]
@@ -218,6 +223,9 @@ def on_message(msg: dict) -> None:
             return
         if c.get("role") == "pending":
             tg.show(chat, *views.pending_view(lang))
+            return
+        if store.setting("maintenance"):
+            tg.show(chat, *views.maintenance_view(lang))
             return
 
     if text in LEGACY_BUTTONS or text.startswith("/start"):
@@ -269,6 +277,8 @@ def on_message(msg: dict) -> None:
         tg.show(chat, *views.ukraine_view(chat))
     elif cmd == "/lang":
         tg.show(chat, *views.language_picker())
+    elif cmd == "/privacy":
+        tg.show(chat, *views.privacy_view(chat))
     elif cmd == "/admin" and views.is_admin(chat):
         tg.show(chat, *admin.panel())
     elif not cmd and arg:
@@ -286,6 +296,9 @@ def on_callback(cb: dict) -> None:
     if c.get("role") in ("banned", "pending") and not views.is_admin(chat):
         return tg.answer(cb["id"])
     lang = views.lang_of(chat)
+    if store.setting("maintenance") and not views.is_admin(chat) and cb.get("data") != "hide":
+        tg.show(chat, *views.maintenance_view(lang), mid=mid)
+        return tg.answer(cb["id"])
     toast, popup = None, False
     kind, _, rest = data.partition(":")
     if kind not in ("bo", "noop"):
@@ -350,6 +363,16 @@ def on_callback(cb: dict) -> None:
     elif data == "q":
         store.set_chat(chat, quiet=0 if c.get("quiet") else 1)
         tg.show(chat, *views.settings_view(chat), mid=mid)
+    elif data == "pv":
+        tg.show(chat, *views.privacy_view(chat), mid=mid)
+    elif data == "dm":
+        tg.show(chat, *views.delete_me_confirm(chat), mid=mid)
+    elif data == "dm!":
+        for s in store.subs_of(chat):
+            tg.delete(chat, s.get("alert_msg"))
+        store.delete_chat(chat)
+        checker.event(f"🗑 Пользователь удалил свои данные ({chat})", "user")
+        tg.edit(chat, mid, views.deleted_text(lang), ikb([]))
     elif data == "xa":
         tg.show(chat, tx(lang, "🗑 <b>Удалить все подписки?</b>\nУведомления перестанут приходить.",
                          "🗑 <b>Видалити всі підписки?</b>\nСповіщення перестануть надходити."),
@@ -483,10 +506,10 @@ class Handler(BaseHTTPRequestHandler):
 COMMANDS = {
     "ru": [("menu", "🏠 Главное меню"), ("add", "➕ Добавить офис"), ("radar", "📡 Радар — где раньше"),
            ("list", "📋 Мои подписки"), ("check", "🔄 Проверить сейчас"), ("ua", "🇺🇦 Для украинцев"),
-           ("lang", "🌐 Язык / Мова"), ("help", "❓ Как это работает")],
+           ("lang", "🌐 Язык / Мова"), ("help", "❓ Как это работает"), ("privacy", "🔒 Мои данные")],
     "uk": [("menu", "🏠 Головне меню"), ("add", "➕ Додати офіс"), ("radar", "📡 Радар — де швидше"),
            ("list", "📋 Мої підписки"), ("check", "🔄 Перевірити зараз"), ("ua", "🇺🇦 Для українців"),
-           ("lang", "🌐 Мова / Язык"), ("help", "❓ Як це працює")],
+           ("lang", "🌐 Мова / Язык"), ("help", "❓ Як це працює"), ("privacy", "🔒 Мої дані")],
 }
 SHORT = {
     "ru": "🔔 Свободные citas DGT (Tráfico) — сразу напишу, когда в твоём офисе появятся даты. Все 68 офисов Испании.",
@@ -523,6 +546,13 @@ def setup_profile() -> None:
 def start_background() -> None:
     threading.Thread(target=checker.loop, daemon=True).start()
     threading.Thread(target=checker.reminders, daemon=True).start()
+    threading.Thread(target=checker.housekeeping, daemon=True).start()
+
+    def on_stop(*_) -> None:  # Render останавливает сервис сигналом SIGTERM — сохраняем статистику
+        store.flush_metrics()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, on_stop)
 
 
 def main() -> None:

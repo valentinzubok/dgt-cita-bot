@@ -14,6 +14,7 @@ import sqlite3
 import threading
 import time
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -60,6 +61,11 @@ SCHEMA = [
     """CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
         value TEXT)""",
+    """CREATE TABLE IF NOT EXISTS metrics (
+        day TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value BIGINT NOT NULL DEFAULT 0,
+        PRIMARY KEY (day, key))""",
     """CREATE TABLE IF NOT EXISTS office_areas (
         centro TEXT PRIMARY KEY,
         data TEXT NOT NULL,
@@ -77,16 +83,22 @@ MIGRATIONS = [
     ("subs", "booked_date", "TEXT"),
     ("subs", "booked_time", "TEXT"),
     ("subs", "reminded", "INTEGER NOT NULL DEFAULT 0"),
+    ("chats", "alerts", "INTEGER NOT NULL DEFAULT 0"),
+    ("chats", "bookings", "INTEGER NOT NULL DEFAULT 0"),
 ]
 SUB_FIELDS = {"max_days", "paused", "last", "checked_at", "fails", "alert_msg", "area_label",
               "booked_date", "booked_time", "reminded"}
-CHAT_FIELDS = {"name", "username", "quiet", "role", "screen", "last_seen", "lang"}
+CHAT_FIELDS = {"name", "username", "quiet", "role", "screen", "last_seen", "lang", "alerts", "bookings"}
 DEFAULTS = {
     "interval": config.DEFAULT_INTERVAL,  # минут между проверками
     "max_subs": 5,                         # подписок на человека
     "checks_paused": 0,                    # 1 — проверки остановлены
     "access": "open",                      # open | approval
     "notify_new": 1,                       # писать админам о новых пользователях
+    "maintenance": 0,                      # 1 — пользователи видят «технические работы»
+    "daily_report": 1,                     # вечерний отчёт владельцам
+    "last_report": "",                     # за какой день уже отправлен отчёт
+    "blocked": "",                         # офисы, которые не проверяем: "centro:area,centro:area"
 }
 
 _mem = threading.RLock()
@@ -95,6 +107,8 @@ _chats: Dict[int, dict] = {}
 _offices: Dict[Tuple[str, str], Optional[int]] = {}
 _settings: Dict[str, object] = dict(DEFAULTS)
 _areas: Dict[str, Tuple[int, list]] = {}
+_metrics: Dict[Tuple[str, str], int] = {}   # сохранённые значения за последние 60 дней
+_pending: Dict[Tuple[str, str], int] = {}   # ещё не записанные в базу приращения
 
 
 @contextmanager
@@ -173,6 +187,9 @@ def init() -> None:
         _offices.update({(r["centro"], r["area"]): r["open_event"] for r in q("SELECT * FROM offices")})
         _areas.clear()
         _areas.update({r["centro"]: (r["updated_at"], json.loads(r["data"])) for r in q("SELECT * FROM office_areas")})
+        since = (datetime.now(config.TZ).date() - timedelta(days=60)).isoformat()
+        _metrics.clear()
+        _metrics.update({(r["day"], r["key"]): int(r["value"]) for r in q("SELECT * FROM metrics WHERE day >= ?", (since,))})
         _settings.clear()
         _settings.update(DEFAULTS)
         for r in q("SELECT * FROM settings"):
@@ -244,6 +261,22 @@ def set_chat(chat: int, **fields) -> None:
 def all_chats() -> List[dict]:
     with _mem:
         return sorted((dict(c) for c in _chats.values()), key=lambda c: -(c.get("created_at") or 0))
+
+
+def bump_chat(chat: int, field: str) -> None:
+    """Счётчик пользователя: сколько уведомлений получил, сколько раз записался."""
+    with _mem:
+        row = _chats.get(chat)
+        if row is not None and field in ("alerts", "bookings"):
+            set_chat(chat, **{field: (row.get(field) or 0) + 1})
+
+
+def delete_chat(chat: int) -> None:
+    """Полностью удаляет пользователя и его подписки (по его просьбе)."""
+    forget_chat(chat)
+    with _mem:
+        q("DELETE FROM chats WHERE chat = ?", (chat,))
+        _chats.pop(chat, None)
 
 
 def forget_chat(chat: int) -> None:
@@ -320,11 +353,26 @@ def pause_chat(chat: int) -> None:
         update_sub(s["id"], paused=1)
 
 
+def blocked_keys() -> set:
+    return {tuple(x.split(":", 1)) for x in str(setting("blocked") or "").split(",") if ":" in x}
+
+
 def active_keys() -> List[Tuple[str, str]]:
     with _mem:
         banned = {c for c, row in _chats.items() if row.get("role") in ("banned", "pending")}
+        blocked = blocked_keys()
         return sorted({(s["centro"], s["area"]) for s in _subs.values()
-                       if not s["paused"] and s["chat"] not in banned})
+                       if not s["paused"] and s["chat"] not in banned and (s["centro"], s["area"]) not in blocked})
+
+
+def popularity() -> Dict[Tuple[str, str], int]:
+    """Сколько активных подписок на каждый офис."""
+    out: Dict[Tuple[str, str], int] = {}
+    with _mem:
+        for s in _subs.values():
+            if not s["paused"]:
+                out[(s["centro"], s["area"])] = out.get((s["centro"], s["area"]), 0) + 1
+    return out
 
 
 def area_labels() -> Dict[str, str]:
@@ -347,6 +395,40 @@ def save_office_areas(centro: str, areas: list) -> None:
           "DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
           (centro, json.dumps(areas, ensure_ascii=False), now))
         _areas[centro] = (now, [list(x) for x in areas])
+
+
+# ---------- статистика по дням ----------
+
+def today_key() -> str:
+    return datetime.now(config.TZ).date().isoformat()
+
+
+def bump(key: str, n: int = 1) -> None:
+    """Считает событие за сегодня. В базу пишется раз в час пачкой, чтобы не будить Neon."""
+    with _mem:
+        k = (today_key(), key)
+        _pending[k] = _pending.get(k, 0) + n
+
+
+def flush_metrics() -> None:
+    with _mem:
+        items = list(_pending.items())
+        _pending.clear()
+    for (day, key), n in items:
+        try:
+            q("INSERT INTO metrics (day, key, value) VALUES (?, ?, ?) ON CONFLICT (day, key) "
+              "DO UPDATE SET value = metrics.value + excluded.value", (day, key, n))
+            with _mem:
+                _metrics[(day, key)] = _metrics.get((day, key), 0) + n
+        except Exception:
+            log.exception("не сохранилась статистика")
+            with _mem:
+                _pending[(day, key)] = _pending.get((day, key), 0) + n
+
+
+def metric(day: str, key: str) -> int:
+    with _mem:
+        return _metrics.get((day, key), 0) + _pending.get((day, key), 0)
 
 
 # ---------- история появления мест ----------

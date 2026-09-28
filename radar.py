@@ -96,6 +96,7 @@ def start(chat: int, mid: int, cid: str, cat: str, km: int) -> Optional[str]:
                         f"📡 Радар можна запускати раз на 5 хвилин — ще {mins} хв")
     busy.add(chat)
     last_run[chat] = time.time()
+    store.bump("radar")
     threading.Thread(target=run, args=(chat, mid, cid, cat, km), daemon=True).start()
     checker.event(f"📡 Радар: {views.city(cid)}, {cat}, {km} км ({store.get_chat(chat).get('name') or chat})")
     return None
