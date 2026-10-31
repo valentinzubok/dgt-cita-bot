@@ -63,6 +63,19 @@ RADAR = '''<svg viewBox="0 0 440 440" width="440" height="440"><defs>
 </svg>'''
 
 
+PANEL = '''<svg viewBox="0 0 440 400" width="440" height="400"><defs>
+<linearGradient id="a" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFB627"/><stop offset="1" stop-color="#FF2D55"/></linearGradient>
+<linearGradient id="b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6EE7B7"/><stop offset="1" stop-color="#0FB78A"/></linearGradient>
+<filter id="s" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#000" flood-opacity=".45"/></filter></defs>
+<g filter="url(#s)"><rect x="20" y="34" width="400" height="332" rx="36" fill="#1E2436"/></g>
+<rect x="20" y="34" width="400" height="58" rx="30" fill="#2A3147"/><rect x="20" y="62" width="400" height="30" fill="#2A3147"/>
+<circle cx="58" cy="64" r="10" fill="#FF5F57"/><circle cx="90" cy="64" r="10" fill="#FEBC2E"/><circle cx="122" cy="64" r="10" fill="#28C840"/>
+<rect x="66" y="238" width="48" height="92" rx="12" fill="url(#b)"/><rect x="138" y="190" width="48" height="140" rx="12" fill="url(#b)"/>
+<rect x="210" y="218" width="48" height="112" rx="12" fill="url(#a)"/><rect x="282" y="150" width="48" height="180" rx="12" fill="url(#a)"/>
+<path d="M70 196 L152 146 L228 176 L306 110 L372 124" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="306" cy="110" r="13" fill="#fff"/></svg>'''
+
+
 def page(bg, art, title, sub, accent="#fff", extra=""):
     return f'''<!doctype html><meta charset="utf-8"><style>
 html,body{{margin:0}}.c{{width:1280px;height:640px;position:relative;overflow:hidden;background:{bg};color:#fff;
@@ -85,6 +98,10 @@ RADAR_P = page("linear-gradient(120deg,#07142B 0%,#0B2A4A 55%,#0E5A5E 100%)", RA
     "{DECOR}", '<div style="position:absolute;inset:0;background:radial-gradient(circle at 26% 50%,rgba(46,230,166,.22),rgba(0,0,0,0) 52%)"></div>')
 
 
+ADMIN = page("linear-gradient(120deg,#0C1020 0%,#1B2442 55%,#3A2A7A 100%)", PANEL, "Admin", "📈 🩺 👥 💰 📣", "#fff").replace(
+    "{DECOR}", '<div style="position:absolute;inset:0;background:radial-gradient(circle at 26% 50%,rgba(120,120,255,.25),rgba(0,0,0,0) 52%)"></div>' + RINGS)
+
+
 def shot(html, out, w, h, quality=86):
     with tempfile.TemporaryDirectory() as tmp:
         src, png = Path(tmp) / "p.html", Path(tmp) / "p.png"
@@ -103,7 +120,7 @@ def shot(html, out, w, h, quality=86):
 avatar = f'<!doctype html><style>html,body{{margin:0}}svg{{display:block;width:640px;height:640px}}</style>{LOGO}'
 shot(avatar, HERE / "avatar.png", 640, 640)
 shot(avatar, HERE / "avatar.jpg", 640, 640, 92)
-for name, html in (("banner", HOME), ("banner_premium", PREMIUM), ("banner_bonus", BONUS), ("banner_radar", RADAR_P)):
+for name, html in (("banner", HOME), ("banner_premium", PREMIUM), ("banner_bonus", BONUS), ("banner_radar", RADAR_P), ("banner_admin", ADMIN)):
     shot(html, HERE / f"{name}.jpg", 1280, 640)
 shot(HOME.replace("height:640px", "height:720px"), HERE / "cover.png", 1280, 720)  # картинка в описании бота: 640x360 в BotFather
 Image.open(HERE / "cover.png").resize((640, 360), Image.LANCZOS).save(HERE / "cover-640x360.png", optimize=True)

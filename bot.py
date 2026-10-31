@@ -8,6 +8,7 @@ import config  # noqa: F401 — первым: читает .env до остал�
 
 import hashlib
 import logging
+import os
 import re
 import signal
 import sys
@@ -16,6 +17,7 @@ import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Dict, Optional, Tuple
 
 import actions
@@ -335,7 +337,7 @@ def on_message(msg: dict) -> None:
     elif cmd == "/privacy":
         tg.show(chat, *views.privacy_view(chat))
     elif cmd == "/admin" and views.is_admin(chat):
-        tg.show(chat, *admin.panel())
+        tg.show(chat, *admin.panel(), banner=views.banner("admin"))
     elif not cmd and arg:
         search(chat, arg, token)
     else:
@@ -760,7 +762,26 @@ def start_background() -> None:
     signal.signal(signal.SIGTERM, on_stop)
 
 
+def parked() -> None:
+    """Бот переехал на другой сервис. Здесь только открытый порт для Render: без входящих запросов сервис засыпает."""
+    class Moved(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(410)
+            self.end_headers()
+
+        do_HEAD = do_GET
+
+        def log_message(self, *args) -> None:
+            pass
+
+    log.info("сервис отключён: BOT_DISABLED")
+    HTTPServer(("0.0.0.0", config.PORT), Moved).serve_forever()
+
+
 def main() -> None:
+    if os.environ.get("BOT_DISABLED"):
+        parked()
+        return
     store.init()
     dgt.AREA_LABELS.update(store.area_labels())
     threading.Thread(target=checker.refresh_centros, daemon=True).start()

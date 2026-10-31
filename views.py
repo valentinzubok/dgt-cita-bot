@@ -415,9 +415,9 @@ def offices(chat: int, page: int = 0, header: str = "", prefix: str = "c", pager
     rows = [[btn(city(c), f"{prefix}:{c}") for c in chunk[i:i + 2]] for i in range(0, len(chunk), 2)]
     rows.append([btn("◀️", f"{pager}:{page - 1}"), btn(f"{page + 1} / {pages}", "noop"), btn("▶️", f"{pager}:{page + 1}")])
     rows.append([home_btn(lang)])
-    text = (header or tx(lang, "🏢 <b>Выбери офис DGT</b>", "🏢 <b>Обери офіс DGT</b>")) + "\n\n" + \
-        tx(lang, "Или просто напиши название города, например <i>Valencia</i>.",
-           "Або просто напиши назву міста, наприклад <i>Valencia</i>.")
+    text = (header or tx(lang, "🏢 <b>Выбери офис DGT</b> · шаг 1 из 2", "🏢 <b>Обери офіс DGT</b> · крок 1 з 2")) + "\n\n" + \
+        tx(lang, "🔎 Или просто напиши город, например <i>Valencia</i>.",
+           "🔎 Або просто напиши місто, наприклад <i>Valencia</i>.")
     return text, ikb(rows)
 
 
@@ -445,7 +445,7 @@ def loading(text: str) -> Tuple[str, dict]:
 
 def areas(chat: int, cid: str, options: List[Tuple[str, str]]) -> Tuple[str, dict]:
     lang = lang_of(chat)
-    text = (f"🏢 <b>{esc(city(cid))}</b>\n<i>{esc(dgt.CENTROS[cid])}</i>\n\n"
+    text = (f"🏢 <b>{esc(city(cid))}</b> · " + tx(lang, "шаг 2 из 2", "крок 2 з 2") + f"\n<i>{esc(dgt.CENTROS[cid])}</i>\n\n"
             + tx(lang, "Какой тип записи нужен?", "Який тип запису потрібен?"))
     rows = []
     for code, label in options:
@@ -471,18 +471,20 @@ def subs_list(chat: int, header: str = "") -> Tuple[str, dict]:
     lang = lang_of(chat)
     subs = store.subs_of(chat)
     if not subs:
-        return (tx(lang, "📋 <b>Подписок пока нет</b>\n\nНажми «➕ Добавить офис» — и я начну следить за свободными датами.",
-                   "📋 <b>Підписок поки немає</b>\n\nНатисни «➕ Додати офіс» — і я почну стежити за вільними датами."),
-                ikb([[btn(tx(lang, "➕ Добавить офис", "➕ Додати офіс"), "p:0")], [home_btn(lang)]]))
+        return (tx(lang, "📋 <b>Пока пусто</b>\n\nДобавь офис — и я начну следить за свободными датами.",
+                   "📋 <b>Поки порожньо</b>\n\nДодай офіс — і я почну стежити за вільними датами."),
+                ikb([[btn(tx(lang, "➕ Добавить офис", "➕ Додати офіс"), "p:0", "primary")], [home_btn(lang)]]))
     lines = [header or tx(lang, "📋 <b>Мои офисы</b> · ", "📋 <b>Мої офіси</b> · ")
              + f"{premium.active_subs_count(chat)}/{premium.limit_subs(chat)}", ""]
     rows = []
+    items = []
     for s in subs:
         emoji, text = summary(s, lang)
-        lines.append(f"{emoji} {title(s)}\n      <i>{text}</i>")
+        items.append(f"{emoji} {title(s)}\n<i>{text}</i>")
         rows.append([btn(f"{emoji} {plain_title(s)}", f"s:{s['id']}")])
-    lines.append(tx(lang, "\nНажми на подписку — покажу подробности.", "\nНатисни на підписку — покажу подробиці."))
-    rows.append([btn(tx(lang, "➕ Добавить", "➕ Додати"), "p:0"), btn(tx(lang, "🔄 Проверить все", "🔄 Перевірити всі"), "ca")])
+    lines[-1:] = ["<blockquote>" + "\n".join(items) + "</blockquote>"]
+    lines.append(tx(lang, "Нажми на офис — покажу подробности.", "Натисни на офіс — покажу подробиці."))
+    rows.append([btn(tx(lang, "➕ Добавить", "➕ Додати"), "p:0", "primary"), btn(tx(lang, "🔄 Проверить все", "🔄 Перевірити всі"), "ca")])
     rows.append([home_btn(lang)])
     return "\n".join(lines), ikb(rows)
 
@@ -760,7 +762,7 @@ def alert(sub: dict, results: list, new: Set[str]) -> Tuple[str, dict]:
     lang = lang_of(sub["chat"])
     days = all_days(results, sub.get("max_days"))
     fresh = len([d for d in days if d[0] in new])
-    lines = [tx(lang, "🔔 <b>Есть свободные даты!</b>", "🔔 <b>Є вільні дати!</b>"), f"🏢 {title(sub)}", ""]
+    lines = [tx(lang, "🔔🔔🔔 <b>ЕСТЬ СВОБОДНЫЕ ДАТЫ!</b>", "🔔🔔🔔 <b>Є ВІЛЬНІ ДАТИ!</b>"), f"🏢 {title(sub)}", ""]
     lines += nearest_lines(lang, results, days)
     lines.append("")
     lines.append(f"📅 <b>{days_word(lang, len(days))}</b> · {day_range(lang, days)}"
@@ -823,8 +825,8 @@ def radar_progress(chat: int, cid: str, cat: str, km: int, done: int, total: int
             + tx(lang, f"до {km} км от {esc(city(cid))}\n\n", f"до {km} км від {esc(city(cid))}\n\n")
             + f"{bar}  {done}/{total}\n"
             + tx(lang, f"⏳ Проверяю <b>{esc(current)}</b>…", f"⏳ Перевіряю <b>{esc(current)}</b>…")
-            + tx(lang, "\n\n<i>Проверяю по одному офису, чтобы сайт DGT не заблокировал — это займёт пару минут.</i>",
-                 "\n\n<i>Перевіряю по одному офісу, щоб сайт DGT не заблокував — це займе кілька хвилин.</i>"), ikb([]))
+            + tx(lang, "\n\n<i>Проверяю офисы по одному, это займёт пару минут.</i>",
+                 "\n\n<i>Перевіряю офіси по одному, це займе кілька хвилин.</i>"), ikb([]))
 
 
 def radar_results(chat: int, cid: str, cat: str, km: int, found: list) -> Tuple[str, dict]:
@@ -872,24 +874,22 @@ def radar_results(chat: int, cid: str, cat: str, km: int, found: list) -> Tuple[
 
 def settings_view(chat: int) -> Tuple[str, dict]:
     lang = lang_of(chat)
-    quiet = store.get_chat(chat).get("quiet")
-    ads = store.get_chat(chat).get("ads_ok")
+    c = store.get_chat(chat)
+    quiet, ads = c.get("quiet"), c.get("ads_ok")
     minutes = store.setting("interval_premium" if premium.is_premium(chat) else "interval")
-    text = (tx(lang, "⚙️ <b>Настройки</b>\n\n", "⚙️ <b>Налаштування</b>\n\n")
-            + tx(lang, f"🌙 <b>Тихий режим ночью</b>: {'включён' if quiet else 'выключен'}\n"
-                       "<i>С 00:00 до 08:00 по Мадриду уведомления приходят без звука.</i>\n\n",
-                 f"🌙 <b>Тихий режим уночі</b>: {'увімкнено' if quiet else 'вимкнено'}\n"
-                 "<i>З 00:00 до 08:00 за Мадридом сповіщення надходять без звуку.</i>\n\n")
-            + tx(lang, f"🌐 Язык: {LANGS[lang]}\n", f"🌐 Мова: {LANGS[lang]}\n")
-            + tx(lang, f"⏱ Проверка каждые {minutes} мин\n", f"⏱ Перевірка кожні {minutes} хв\n")
-            + tx(lang, f"🏢 До {premium.limit_subs(chat)} офисов одновременно", f"🏢 До {premium.limit_subs(chat)} офісів одночасно"))
+    state = lambda on: tx(lang, "вкл", "увімк") if on else tx(lang, "выкл", "вимк")  # noqa: E731
+    text = (tx(lang, "⚙️ <b>Настройки</b>\n\n", "⚙️ <b>Налаштування</b>\n\n") + "<blockquote>"
+            + tx(lang, f"🌐 Язык: {LANGS[lang]}\n⏱ Проверка каждые <b>{minutes} мин</b>\n"
+                       f"🏢 Офисов: до <b>{premium.limit_subs(chat)}</b>",
+                 f"🌐 Мова: {LANGS[lang]}\n⏱ Перевірка кожні <b>{minutes} хв</b>\n"
+                 f"🏢 Офісів: до <b>{premium.limit_subs(chat)}</b>") + "</blockquote>\n"
+            + tx(lang, "🌙 <b>Тихий режим</b>: с 00:00 до 08:00 по Мадриду уведомления приходят без звука.",
+                 "🌙 <b>Тихий режим</b>: з 00:00 до 08:00 за Мадридом сповіщення надходять без звуку."))
     return text, ikb([
-        [btn(tx(lang, f"🌙 Тихий режим: {'вкл' if quiet else 'выкл'}", f"🌙 Тихий режим: {'увімк' if quiet else 'вимк'}"), "q")],
-        [btn(tx(lang, f"📣 Предложения партнёров: {'вкл' if ads else 'выкл'}",
-                f"📣 Пропозиції партнерів: {'увімк' if ads else 'вимк'}"), "adt")],
-        [btn(tx(lang, "🌐 Язык / Мова", "🌐 Мова / Язык"), "lp"),
-         btn(tx(lang, "🔒 Данные", "🔒 Дані"), "pv")],
-        [btn(tx(lang, "🗑 Удалить все подписки", "🗑 Видалити всі підписки"), "xa")],
+        [btn(f"{'🟢' if quiet else '⚪️'} " + tx(lang, "Тихий режим: ", "Тихий режим: ") + state(quiet), "q")],
+        [btn(f"{'🟢' if ads else '⚪️'} " + tx(lang, "Предложения партнёров: ", "Пропозиції партнерів: ") + state(ads), "adt")],
+        [btn(tx(lang, "🌐 Язык / Мова", "🌐 Мова / Язык"), "lp"), btn(tx(lang, "🔒 Данные", "🔒 Дані"), "pv")],
+        [btn(tx(lang, "🗑 Удалить все подписки", "🗑 Видалити всі підписки"), "xa", "danger")],
         [home_btn(lang)],
     ])
 
@@ -898,35 +898,31 @@ def help_view(chat: int) -> Tuple[str, dict]:
     lang = lang_of(chat)
     text = tx(lang,
               "❓ <b>Как это работает</b>\n\n"
-              "Я захожу на сайт DGT так же, как это сделал бы ты: выбираю офис и тип записи и смотрю календарь. "
-              "Как только появляются свободные дни — присылаю уведомление с датами и временем.\n\n"
-              "<b>Цвета</b>\n<blockquote>🟢 много свободных мест\n🟡 занято 33–66%\n🔴 почти всё занято</blockquote>\n"
-              "<b>Что умею</b>\n"
-              "• 📡 радар: ищу ближайший офис, где можно записаться раньше всего\n"
-              "• 🗓 календарь со свободным временем\n"
-              "• ✅ «Я записался»: напомню о визите и подскажу, что взять\n"
-              "• 📅 присылать только даты раньше нужной, ⏸ пауза, 📊 история\n"
-              "• 🌙 тихий режим ночью\n"
-              "• 🎁 бесплатный Premium за задания и друзей\n\n"
-              "<b>Советы</b>\n"
-              "• Места быстро разбирают — открывай сайт сразу после уведомления\n"
-              "• Держи под рукой DNI/NIE: сайт спросит данные при записи\n\n"
-              "Записываешься ты сам — я только сообщаю, когда есть места. Бот не связан с DGT.",
+              "Я смотрю календарь DGT по твоему офису и типу записи. Как только появляются свободные дни, "
+              "присылаю уведомление с датами и временем.\n\n"
+              "🎨 <b>Цвета</b>\n<blockquote>🟢 много свободных мест\n🟡 занято 33–66%\n🔴 почти всё занято</blockquote>\n"
+              "🧰 <b>Что умею</b>\n<blockquote>📡 Радар: ближайший офис, где запись раньше всего\n"
+              "🗓 Календарь со свободным временем\n"
+              "✅ «Я записался»: напомню о визите и подскажу, что взять\n"
+              "📅 Только даты раньше нужной, ⏸ пауза, 📊 история\n"
+              "🌙 Тихий режим ночью\n"
+              "🎁 Бесплатный Premium за задания и друзей</blockquote>\n"
+              "💡 <b>Советы</b>\n<blockquote>Места быстро разбирают: открывай сайт сразу после уведомления\n"
+              "Держи под рукой DNI/NIE: сайт спросит данные при записи</blockquote>\n"
+              "<i>Записываешься ты сам, я только сообщаю о местах. Бот не связан с DGT.</i>",
               "❓ <b>Як це працює</b>\n\n"
-              "Я заходжу на сайт DGT так само, як це зробив би ти: обираю офіс і тип запису та дивлюся календар. "
-              "Щойно з’являються вільні дні — надсилаю сповіщення з датами й часом.\n\n"
-              "<b>Кольори</b>\n<blockquote>🟢 багато вільних місць\n🟡 зайнято 33–66%\n🔴 майже все зайнято</blockquote>\n"
-              "<b>Що вмію</b>\n"
-              "• 📡 радар: шукаю найближчий офіс, де можна записатися найшвидше\n"
-              "• 🗓 календар із вільним часом\n"
-              "• ✅ «Я записався»: нагадаю про візит і підкажу, що взяти\n"
-              "• 📅 надсилати лише дати раніше потрібної, ⏸ пауза, 📊 історія\n"
-              "• 🌙 тихий режим уночі\n"
-              "• 🎁 безкоштовний Premium за завдання й друзів\n\n"
-              "<b>Поради</b>\n"
-              "• Місця швидко розбирають — відкривай сайт одразу після сповіщення\n"
-              "• Тримай під рукою DNI/NIE: сайт спитає дані під час запису\n\n"
-              "Записуєшся ти сам — я лише повідомляю, коли є місця. Бот не пов’язаний з DGT.")
+              "Я дивлюся календар DGT за твоїм офісом і типом запису. Щойно з’являються вільні дні, "
+              "надсилаю сповіщення з датами й часом.\n\n"
+              "🎨 <b>Кольори</b>\n<blockquote>🟢 багато вільних місць\n🟡 зайнято 33–66%\n🔴 майже все зайнято</blockquote>\n"
+              "🧰 <b>Що вмію</b>\n<blockquote>📡 Радар: найближчий офіс, де запис найшвидше\n"
+              "🗓 Календар із вільним часом\n"
+              "✅ «Я записався»: нагадаю про візит і підкажу, що взяти\n"
+              "📅 Лише дати раніше потрібної, ⏸ пауза, 📊 історія\n"
+              "🌙 Тихий режим уночі\n"
+              "🎁 Безкоштовний Premium за завдання й друзів</blockquote>\n"
+              "💡 <b>Поради</b>\n<blockquote>Місця швидко розбирають: відкривай сайт одразу після сповіщення\n"
+              "Тримай під рукою DNI/NIE: сайт спитає дані під час запису</blockquote>\n"
+              "<i>Записуєшся ти сам, я лише повідомляю про місця. Бот не пов’язаний з DGT.</i>")
     return text, ikb([[btn(tx(lang, "🇺🇦 Для украинцев", "🇺🇦 Для українців"), "ua"),
                        btn(tx(lang, "📄 Условия", "📄 Умови"), "tm")], [home_btn(lang)]])
 

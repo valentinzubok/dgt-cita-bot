@@ -71,45 +71,48 @@ def csv_safe(value) -> object:
 
 # ---------- обзор ----------
 
+def state_line() -> str:
+    s = checker.status
+    if checker.site_down():
+        return f"🔴 <b>нет связи с DGT</b> с {datetime.fromtimestamp(s['down_since'], config.TZ):%d.%m %H:%M}"
+    if store.setting("checks_paused"):
+        return "🟡 <b>проверки остановлены</b>"
+    return "🟢 <b>работает</b>"
+
+
 def panel() -> Tuple[str, dict]:
     chats, subs, keys = store.all_chats(), store.all_subs(), store.active_keys()
     now = time.time()
-    s, day = checker.status, store.today_key()
+    day = store.today_key()
     active_week = sum(1 for c in chats if (c.get("last_seen") or 0) > now - 7 * 86400)
     open_now = sum(1 for k in keys if checker.offices.get(k, {}).get("days"))
     waiting = sum(1 for c in chats if c.get("role") == "pending")
     paid_now = sum(1 for c in chats if (c.get("premium_until") or 0) > now)
-    if checker.site_down():
-        state = f"🛑 сайт DGT недоступен с {datetime.fromtimestamp(s['down_since'], config.TZ):%d.%m %H:%M}"
-    elif store.setting("maintenance"):
-        state = "🛠 режим обслуживания"
-    elif store.setting("checks_paused"):
-        state = "⏸ проверки остановлены"
-    else:
-        state = "✅ работает"
+    maint = store.setting("maintenance")
     text = (
-        "🛠 <b>Админ-панель</b>\n\n"
-        f"<b>Сегодня</b>\n<blockquote>"
-        f"👤 Новых: <b>{store.metric(day, 'new_users')}</b> · ➕ подписок: {store.metric(day, 'subs')}\n"
+        f"🛠 <b>Админ-панель</b> · {state_line()}"
+        + ("\n🚧 Пользователи видят «Технические работы»" if maint else "") + "\n\n"
+        "📅 <b>Сегодня</b>\n<blockquote>"
+        f"👤 Новых: <b>{store.metric(day, 'new_users')}</b> · ➕ подписок: <b>{store.metric(day, 'subs')}</b>\n"
         f"🔔 Уведомлений: <b>{store.metric(day, 'alerts')}</b> · ✅ записались: <b>{store.metric(day, 'bookings')}</b>\n"
-        f"💰 Оплат: <b>{store.metric(day, 'payments')}</b> на {store.metric(day, 'stars')} ⭐\n"
+        f"💰 Оплат: <b>{store.metric(day, 'payments')}</b> на <b>{store.metric(day, 'stars')}</b> ⭐\n"
         f"🎁 Промо: {store.metric(day, 'promo_used')} · заданий: {store.metric(day, 'tasks_done')} · "
         f"друзей: {store.metric(day, 'ref_activated')}</blockquote>\n"
-        f"<b>Всего</b>\n<blockquote>"
-        f"👥 Пользователей: <b>{len(chats)}</b> · активны за неделю: {active_week}\n"
-        f"💎 Premium сейчас: <b>{paid_now}</b>\n"
-        f"📋 Подписок: <b>{len(subs)}</b> · офисов в проверке: {len(keys)}/{config.MAX_OFFICES}\n"
-        f"🟢 Офисов с датами сейчас: <b>{open_now}</b>"
-        + (f"\n🙋 Ждут одобрения: <b>{waiting}</b>" if waiting else "")
-        + f"</blockquote>\nСостояние: {state}"
+        "📊 <b>Всего</b>\n<blockquote>"
+        f"👥 Пользователей: <b>{len(chats)}</b> · за неделю: <b>{active_week}</b>\n"
+        f"💎 Premium: <b>{paid_now}</b>\n"
+        f"📋 Подписок: <b>{len(subs)}</b> · офисов: <b>{len(keys)}/{config.MAX_OFFICES}</b>\n"
+        f"🟢 Офисов с датами: <b>{open_now}</b>"
+        + (f"\n🙋 Ждут одобрения: <b>{waiting}</b>" if waiting else "") + "</blockquote>"
     )
     return text, ikb([
         [btn("📈 Аналитика", "ad:an"), btn("🩺 Система", "ad:sy", "danger" if checker.site_down() else None)],
         [btn("👥 Пользователи", "ad:u:0"), btn("🏢 Офисы", "ad:o")],
         [btn("💰 Доход", "ad:mn", "success"), btn("🎟 Промо", "ad:pm")],
         [btn("📝 Задания", "ad:ts"), btn("📣 Реклама", "ad:ca")],
-        [btn("📢 Рассылка", "ad:b"), btn("📤 Экспорт", "ad:x")],
-        [btn("⚙️ Настройки", "ad:s"), btn("📜 Журнал", "ad:l:all")],
+        [btn("📢 Рассылка", "ad:b", "primary"), btn("📜 Журнал", "ad:l:all")],
+        [btn("⚙️ Настройки", "ad:s"), btn("📤 Экспорт", "ad:x")],
+        [btn("🚧 Выключить техработы" if maint else "🚧 Включить техработы", "ad:pw", "danger" if maint else None)],
         [btn("🔄 Обновить", "ad"), HOME],
     ])
 
@@ -145,9 +148,9 @@ def analytics() -> Tuple[str, dict]:
                  for i, ((cid, area), n) in enumerate(popular)] or ["пока пусто"]
     text = (
         "📈 <b>Аналитика</b>\n\n"
-        "<b>За 7 дней</b>\n<pre>" + "\n".join(table) + "</pre>\n"
-        "<b>Новые пользователи</b>\n<pre>" + chart + "</pre>\n"
-        "<b>Воронка</b>\n<blockquote>"
+        "📅 <b>За 7 дней</b>\n<pre>" + "\n".join(table) + "</pre>\n"
+        "👤 <b>Новые пользователи</b>\n<pre>" + chart + "</pre>\n"
+        "🔻 <b>Воронка</b>\n<blockquote>"
         f"👥 Запустили бота: <b>{len(chats)}</b>\n"
         f"🌐 Выбрали язык: {with_lang} · {pct(with_lang)}\n"
         f"📋 Подписались: <b>{with_subs}</b> · {pct(with_subs)}\n"
@@ -155,8 +158,8 @@ def analytics() -> Tuple[str, dict]:
         f"✅ Записались: <b>{booked}</b> · {pct(booked)}\n"
         f"💰 Заплатили: <b>{paid}</b> · {pct(paid)}</blockquote>\n"
         f"🌐 Языки: 🇺🇦 {uk} · 🇷🇺 {with_lang - uk} · не выбран {len(chats) - with_lang}\n\n"
-        "<b>Топ офисов</b>\n<blockquote>" + "\n".join(top_lines) + "</blockquote>\n"
-        "<b>Откуда пришли</b> (t.me/" + config.BOT_USERNAME + "?start=метка)\n<blockquote>" + "\n".join(src_lines) + "</blockquote>\n"
+        "🏆 <b>Топ офисов</b>\n<blockquote>" + "\n".join(top_lines) + "</blockquote>\n"
+        "🔗 <b>Откуда пришли</b> (t.me/" + config.BOT_USERNAME + "?start=метка)\n<blockquote>" + "\n".join(src_lines) + "</blockquote>\n"
         "<i>нов — новые, подп — подписки, увед — уведомления, зап — записались, опл — оплаты.</i>"
     )
     return text, ikb([[btn("🔄 Обновить", "ad:an"), BACK]])
@@ -181,16 +184,16 @@ def system(note: str = "") -> Tuple[str, dict]:
     hook = hook if isinstance(hook, dict) else {}
     site = f"🟢 Сайт DGT отвечал {fmt_ts(s['last_ok'])}" if s["last_ok"] else "⏳ С запуска сайт DGT не отвечал"
     if checker.site_down():
-        site = (f"🛑 Сайт DGT недоступен с {datetime.fromtimestamp(s['down_since'], config.TZ):%d.%m %H:%M}\n"
+        site = (f"🔴 Нет связи с DGT с {datetime.fromtimestamp(s['down_since'], config.TZ):%d.%m %H:%M}\n"
                 f"Следующая проба: {datetime.fromtimestamp(s['probe_at'], config.TZ):%H:%M}\n" + site)
     text = (
-        "🩺 <b>Система</b>\n\n<b>Проверки DGT</b>\n<blockquote>"
+        f"🩺 <b>Система</b> · {state_line()}\n\n🔎 <b>Проверки DGT</b>\n<blockquote>"
         f"{site}\n"
         f"⏱ Средняя проверка: {cap['avg']:.1f} с · за 10 мин успеваем ~{cap['fits']} офисов\n"
         f"📦 Офисов в работе: {cap['offices']}/{config.MAX_OFFICES} · ждут очереди: {s['backlog']}\n"
         f"⚙️ Загрузка очереди: {cap['load']}%\n"
         f"⚠️ Ошибок за час: {cap['errors_hour']} · с запуска: {s['errors']} · проверок: {s['checks']}</blockquote>\n"
-        "<b>Сервер</b>\n<blockquote>"
+        "🖥 <b>Сервер</b>\n<blockquote>"
         f"💾 Память: {memory_mb():.0f} МБ из 512 · потоков: {threading.active_count()}\n"
         f"🌐 Webhook: в очереди {hook.get('pending_update_count', '?')} · "
         f"{'ошибка: ' + esc(hook['last_error_message']) if hook.get('last_error_message') else 'ошибок нет'}\n"
@@ -216,8 +219,8 @@ def users(page: int = 0, found: Optional[List[dict]] = None, query: str = "") ->
         rows.append([btn("◀️", f"ad:u:{page - 1}"), btn(f"{page + 1} / {pages}", "noop"), btn("▶️", f"ad:u:{page + 1}")])
     rows.append([btn("🔎 Найти", "ad:uf"), BACK])
     head = f"🔎 <b>Поиск «{esc(query)}»</b> · найдено {len(found)}" if found is not None else f"👥 <b>Пользователи</b> · {len(chats)}"
-    return (f"{head}\n\n👑 владелец · ⭐️ админ · 💎 Premium · 🚫 заблокирован · ⏳ ждёт одобрения\n"
-            "<i>Сначала новые. Нажми на пользователя — откроется карточка.</i>"), ikb(rows)
+    return (f"{head}\n\n<blockquote>👑 владелец · ⭐️ админ · 💎 Premium\n🚫 заблокирован · ⏳ ждёт одобрения</blockquote>\n"
+            "<i>Сначала новые. Нажми на пользователя, чтобы открыть карточку.</i>"), ikb(rows)
 
 
 def user_card(target: int, viewer: int, note: str = "") -> Tuple[str, dict]:
@@ -295,8 +298,8 @@ def offices_view() -> Tuple[str, dict]:
         rows.append([btn(f"{office_emoji(st, (cid, area) in blocked)} {views.city(cid)} · {label} — 👥 {active}",
                          f"ad:oc:{cid}:{area}")])
     rows.append([BACK])
-    text = ("🏢 <b>Офисы под наблюдением</b> · " + str(len(groups)) + "\n\n"
-            "🟢 есть даты · 🔴 мест нет · ⚪️ нет такой записи · ⚠️ сайт не отвечает · ⛔️ отключён · ⏳ не проверялся\n"
+    text = ("🏢 <b>Офисы под наблюдением</b> · " + str(len(groups)) + "\n\n<blockquote>"
+            "🟢 есть даты · 🔴 мест нет · ⚪️ нет такой записи\n⚠️ сайт не отвечает · ⛔️ отключён · ⏳ не проверялся</blockquote>\n"
             "<i>👥 — сколько человек следят (без пауз).</i>") if groups else "🏢 Пока никто ни на что не подписан."
     return text, ikb(rows)
 
@@ -352,9 +355,10 @@ def money(note: str = "") -> Tuple[str, dict]:
             f"⭐️ Баланс бота: <b>{balance.get('amount', '?')}</b>\n"
             f"🧾 Оплат всего: {total['n']} на <b>{total['stars']}</b> ⭐\n"
             f"💎 Premium сейчас: <b>{paid_now}</b> · с автопродлением: {auto}</blockquote>\n"
-            f"<b>Цены</b>: 7 дней — {store.setting('price_7')} ⭐ · 30 дней — {store.setting('price_30')} ⭐ · "
-            f"90 дней — {store.setting('price_90')} ⭐\n\n"
-            "<b>Последние оплаты</b>\n" + ("<blockquote>" + "\n".join(lines) + "</blockquote>" if lines else "пока нет")
+            "🏷 <b>Цены</b>\n<blockquote>"
+            f"7 дней — <b>{store.setting('price_7')}</b> ⭐\n30 дней — <b>{store.setting('price_30')}</b> ⭐\n"
+            f"90 дней — <b>{store.setting('price_90')}</b> ⭐</blockquote>\n"
+            "🧾 <b>Последние оплаты</b>\n" + ("<blockquote>" + "\n".join(lines) + "</blockquote>" if lines else "пока нет")
             + (f"\n\n{note}" if note else ""))
     return text, ikb([[btn("✏️ Изменить цены", "ad:pp")], [btn("🔄 Обновить", "ad:mn"), BACK]])
 
@@ -423,9 +427,9 @@ def tasks_view() -> Tuple[str, dict]:
     rows.append([btn(f"👥 Награда за друга: {days_text(int(store.setting('ref_hours')))}", "ad:rh")])
     rows.append([BACK])
     done = " · ".join(f"{store.task_count(k)} — {v[0][:18]}" for k, v in rewards.BUILTIN.items())
-    return ("📝 <b>Задания</b>\n\n"
-            "🔑 — канал, обязательный для награды за друзей. Бот проверяет подписку сам, поэтому его надо сделать "
-            "администратором канала (для группы достаточно участника).\n\n"
+    return ("📝 <b>Задания</b>\n\n<blockquote>"
+            "🔑 Канал, обязательный для награды за друзей. Бот проверяет подписку сам, поэтому его надо сделать "
+            "администратором канала (для группы достаточно участника).</blockquote>\n"
             f"<i>Встроенные: {esc(done)}</i>"), ikb(rows)
 
 
@@ -603,25 +607,27 @@ def settings() -> Tuple[str, dict]:
     s = store.setting
     interval, fast, free, top = s("interval"), s("interval_premium"), s("free_subs"), s("max_subs")
     paused, approval, notify, maint, report = s("checks_paused"), s("access") == "approval", s("notify_new"), s("maintenance"), s("daily_report")
+    mark = lambda on: "🟢" if on else "⚪️"  # noqa: E731
     text = ("⚙️ <b>Настройки бота</b>\n\n<blockquote>"
             f"⏱ Проверка: бесплатно <b>{interval} мин</b> · Premium <b>{fast} мин</b>\n"
-            f"📋 Офисов: бесплатно <b>{free}</b> · Premium <b>{top}</b>\n"
-            f"🔎 Проверки: <b>{'остановлены' if paused else 'работают'}</b>\n"
-            f"🚪 Доступ: <b>{'по одобрению' if approval else 'открытый'}</b>\n"
-            f"🛠 Режим обслуживания: <b>{'включён' if maint else 'выключен'}</b>\n"
-            f"🔔 О новых пользователях: <b>{'сообщать' if notify else 'нет'}</b>\n"
-            f"📊 Вечерний отчёт в 21:00: <b>{'да' if report else 'нет'}</b></blockquote>\n"
-            "<i>Чем чаще проверки, тем выше риск блокировки сайтом DGT. Строки ниже: интервал бесплатно, "
-            "интервал Premium, офисы бесплатно, офисы Premium.</i>")
+            f"🏢 Офисов: бесплатно <b>{free}</b> · Premium <b>{top}</b>\n"
+            f"{mark(not paused)} Проверки: <b>{'остановлены' if paused else 'работают'}</b>\n"
+            f"{mark(not maint)} Техработы: <b>{'включены' if maint else 'выключены'}</b>\n"
+            f"🚪 Доступ: <b>{'по одобрению' if approval else 'открытый'}</b></blockquote>\n"
+            "<i>Чем чаще проверки, тем выше риск блокировки сайтом DGT.</i>")
     return text, ikb([
+        [btn("⏱ Проверка бесплатно, мин", "noop")],
         [btn(("✅ " if n == interval else "") + f"{n}", f"ad:si:{n}") for n in (10, 15, 20, 30)],
-        [btn(("✅ " if n == fast else "") + f"⚡️{n}", f"ad:sf:{n}") for n in (5, 7, 10, 15)],
+        [btn("⚡️ Проверка Premium, мин", "noop")],
+        [btn(("✅ " if n == fast else "") + f"{n}", f"ad:sf:{n}") for n in (5, 7, 10, 15)],
+        [btn("🏢 Офисов бесплатно", "noop")],
         [btn(("✅ " if n == free else "") + f"{n}", f"ad:sg:{n}") for n in (1, 2, 3, 5)],
-        [btn(("✅ " if n == top else "") + f"💎{n}", f"ad:sm:{n}") for n in (5, 10, 15, 20)],
-        [btn("▶️ Запустить проверки" if paused else "⏸ Остановить проверки", "ad:sp")],
+        [btn("💎 Офисов Premium", "noop")],
+        [btn(("✅ " if n == top else "") + f"{n}", f"ad:sm:{n}") for n in (5, 10, 15, 20)],
+        [btn("▶️ Запустить проверки" if paused else "⏸ Остановить проверки", "ad:sp"),
+         btn("🚧 Выключить техработы" if maint else "🚧 Включить техработы", "ad:sw", "danger" if maint else None)],
         [btn("🚪 Сделать открытым" if approval else "🔐 Доступ по одобрению", "ad:sa")],
-        [btn("🛠 Выключить обслуживание" if maint else "🛠 Режим обслуживания", "ad:sw")],
-        [btn(f"🔔 Новые: {'вкл' if notify else 'выкл'}", "ad:sn"), btn(f"📊 Отчёт: {'вкл' if report else 'выкл'}", "ad:sr")],
+        [btn(f"{mark(notify)} Новые", "ad:sn"), btn(f"{mark(report)} Отчёт в 21:00", "ad:sr")],
         [BACK],
     ])
 
@@ -683,7 +689,7 @@ def handle_input(msg: dict) -> bool:
             checker.event(f"⚙️ Новые цены: {text}", "money")
             tg.show(chat, *money("✅ Цены обновлены"), mid=screen)
         else:
-            tg.show(chat, "✏️ Нужно три числа от 1 до 10000 через пробел, например <code>150 350 800</code>",
+            tg.show(chat, "✏️ Нужно три числа от 1 до 10000 через пробел, например <code>39 99 249</code>",
                     ikb([[btn("✖️ Отмена", "ad:mn")]]), mid=screen)
     elif kind == "promo_code":
         code = text.upper()
@@ -753,12 +759,16 @@ def on_callback(chat: int, mid: int, data: str) -> Optional[str]:
         pending.pop(chat, None)
 
     if kind == "":
-        tg.show(chat, *panel(), mid=mid)
+        tg.show(chat, *panel(), mid=mid, banner=views.banner("admin"))
     elif kind == "bx":
         p = pending.pop(chat, None)
         if p and p.get("draft"):
             tg.call("deleteMessage", chat_id=chat, message_id=p["draft"])
-        tg.show(chat, *panel(), mid=mid)
+        tg.show(chat, *panel(), mid=mid, banner=views.banner("admin"))
+    elif kind == "pw":
+        store.set_setting("maintenance", 0 if store.setting("maintenance") else 1)
+        checker.event(f"🚧 Техработы: {'включены' if store.setting('maintenance') else 'выключены'}")
+        tg.show(chat, *panel(), mid=mid, banner=views.banner("admin"))
     elif kind == "an":
         tg.show(chat, *analytics(), mid=mid)
     elif kind == "sy":
@@ -805,7 +815,7 @@ def on_callback(chat: int, mid: int, data: str) -> Optional[str]:
     elif kind == "or":
         cid, _, area = rest.partition(":")
         if checker.site_down():
-            return "🛑 Сайт DGT сейчас недоступен"
+            return "🔴 Нет связи с сайтом DGT"
         tg.show(chat, *office_card(cid, area, "\n🔄 <i>Проверяю…</i>"), mid=mid)
 
         def job() -> None:
@@ -818,7 +828,7 @@ def on_callback(chat: int, mid: int, data: str) -> Optional[str]:
         if chat not in config.OWNERS:
             return "Цены меняет только владелец"
         pending[chat] = {"kind": "prices", "screen": mid}
-        tg.show(chat, "✏️ Новые цены в звёздах: 7, 30 и 90 дней через пробел.\nНапример: <code>150 350 800</code>",
+        tg.show(chat, "✏️ Новые цены в звёздах: 7, 30 и 90 дней через пробел.\nНапример: <code>39 99 249</code>",
                 ikb([[btn("✖️ Отмена", "ad:mn")]]), mid=mid)
     elif kind == "pm":
         tg.show(chat, *promos_view(), mid=mid)
