@@ -172,7 +172,7 @@ INT_SETTINGS = {"interval", "interval_premium", "free_subs", "max_subs", "checks
                 "daily_report", "price_7", "price_30", "price_90", "ref_hours", "ref_cap", "ref_task", "ad_gap",
                 "free_radar_day"}
 DEFAULTS = {
-    "interval": 15,                # минут между проверками офиса (бесплатно)
+    "interval": 30,                # минут между проверками офиса (бесплатно)
     "interval_premium": 5,         # минут между проверками офиса, за которым следит подписчик Premium
     "free_subs": 2,                # офисов на бесплатном тарифе
     "max_subs": 10,                # офисов с Premium

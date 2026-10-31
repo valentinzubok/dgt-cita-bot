@@ -8,6 +8,7 @@ import config  # noqa: F401 — первым: читает .env до остал�
 
 import hashlib
 import logging
+import math
 import os
 import re
 import signal
@@ -129,11 +130,15 @@ def subscribe(chat: int, mid: int, cid: str, area: str, token: int) -> Optional[
     return None
 
 
-def too_often(chat: int) -> bool:
-    if time.time() - last_manual.get(chat, 0) < 60:
-        return True
+def manual_wait(chat: int, lang: str) -> Optional[str]:
+    """Подсказка, если ручная проверка пока недоступна. Бесплатно — не чаще обычной, иначе кнопка обходит лимит."""
+    gap = 60 if premium.is_premium(chat) else int(store.setting("interval")) * 60
+    left = last_manual.get(chat, 0) + gap - time.time()
+    if left > 0:
+        minutes = math.ceil(left / 60)
+        return tx(lang, f"⏳ Следующая ручная проверка через {minutes} мин", f"⏳ Наступна ручна перевірка за {minutes} хв")
     last_manual[chat] = time.time()
-    return False
+    return None
 
 
 def check_all(chat: int, mid: Optional[int], token: int) -> Optional[str]:
@@ -145,8 +150,9 @@ def check_all(chat: int, mid: Optional[int], token: int) -> Optional[str]:
             tx(lang, "Сначала добавь офис", "Спочатку додай офіс")
     if checker.site_down():
         return tx(lang, "🛠 Идут технические работы", "🛠 Тривають технічні роботи")
-    if too_often(chat):
-        return tx(lang, "⏳ Только что проверял — попробуй через минуту", "⏳ Щойно перевіряв — спробуй за хвилину")
+    wait = manual_wait(chat, lang)
+    if wait:
+        return wait
     mins = max(1, round(len(keys) * 25 / 60))
     offices = views.pl(lang, len(keys), ("офис", "офиса", "офисов"), ("офіс", "офіси", "офісів"))
     mid = tg.show(chat, *views.dashboard(chat, "", None, tx(lang, f"🔄 <b>Проверяю {offices}…</b> около {mins} мин",
@@ -567,8 +573,9 @@ def sub_action(chat: int, mid: int, kind: str, rest: str, lang: str, token: int)
     elif kind == "r":
         if checker.site_down():
             return tx(lang, "🛠 Идут технические работы", "🛠 Тривають технічні роботи"), False
-        if too_often(chat):
-            return tx(lang, "⏳ Только что проверял — попробуй через минуту", "⏳ Щойно перевіряв — спробуй за хвилину"), False
+        wait = manual_wait(chat, lang)
+        if wait:
+            return wait, False
         tg.show(chat, *views.card(sub, tx(lang, "🔄 <i>Проверяю… около минуты</i>", "🔄 <i>Перевіряю… близько хвилини</i>")), mid=mid)
         actions.check_now(sub, (mid, token))
     elif kind == "h":

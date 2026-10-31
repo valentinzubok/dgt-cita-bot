@@ -617,7 +617,7 @@ def settings() -> Tuple[str, dict]:
             "<i>Чем чаще проверки, тем выше риск блокировки сайтом DGT.</i>")
     return text, ikb([
         [btn("⏱ Проверка бесплатно, мин", "noop")],
-        [btn(("✅ " if n == interval else "") + f"{n}", f"ad:si:{n}") for n in (10, 15, 20, 30)],
+        [btn(("✅ " if n == interval else "") + f"{n}", f"ad:si:{n}") for n in (15, 30, 45, 60)],
         [btn("⚡️ Проверка Premium, мин", "noop")],
         [btn(("✅ " if n == fast else "") + f"{n}", f"ad:sf:{n}") for n in (5, 7, 10, 15)],
         [btn("🏢 Офисов бесплатно", "noop")],

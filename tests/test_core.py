@@ -319,6 +319,15 @@ class Limits(unittest.TestCase):
         self.assertEqual(actions.add_subscription(600, "999", "CND")[0], "bad")
         self.assertEqual(actions.add_subscription(600, "536", "<x>")[0], "bad")
 
+    def test_manual_check_follows_plan(self):
+        user(610), user(611)
+        premium.grant(611, 24, "t")
+        bot.last_manual.clear()
+        self.assertIsNone(bot.manual_wait(610, "ru"))
+        self.assertIn("30 мин", bot.manual_wait(610, "ru"))
+        self.assertIsNone(bot.manual_wait(611, "ru"))
+        self.assertIn("1 мин", bot.manual_wait(611, "ru"))
+
     def test_cannot_hoard_with_pause(self):
         user(603)
         store.claim_task("b:sub", 603)

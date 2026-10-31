@@ -223,7 +223,7 @@ class Handler(BaseHTTPRequestHandler):
         url = urlsplit(self.path)
         path = url.path.rstrip("/") or "/"
         if path in ("/", "/health"):
-            return self._json(200, {"ok": True, "version": config.VERSION, "started": checker.status["started"]})
+            return self._json(200, {"ok": True, "version": config.VERSION, "started": checker.status["started"], "ready": bool(config.TOKEN)})
         if path in FILES and (config.ROOT / FILES[path]).exists():
             return self._file(path)
         link = re.fullmatch(r"/([rt])/(\d{1,9})/(-?\d{1,20})/([0-9a-f]{16})", path)
