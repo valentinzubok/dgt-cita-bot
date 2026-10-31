@@ -11,13 +11,13 @@ const T = {
     days: "дн.", pause: "Пауза", resume: "Возобновить", check: "Проверить", remove: "Удалить", book: "Записаться на сайте DGT",
     confirmDelete: "Удалить этот офис из подписок?", history: "Когда появлялись места", noHistory: "Пока мест здесь не появлялось.",
     held: "держались", still: "ещё есть", min2: "мин", many: "много", mid: "средне", few: "мало", noDates: "Свободных дат сейчас нет. Бот напишет, как только появятся.",
-    outage: "Сайт DGT сейчас недоступен для проверок. Данные могут быть неактуальны.",
+    outage: "Идут технические работы. Данные могут быть неактуальны.",
     invite: "Пригласи друга", inviteText: "Ты и друг получите бонус Premium, когда он добавит офис.", copy: "Копировать", copied: "Скопировано", share: "Поделиться",
     invited: "Приглашено", counted: "Засчитано", tasks: "Задания и промокоды", openBot: "Открыть в боте",
     lockedTitle: "Мини-приложение — для Premium", lockedText: "Управляй офисами в удобном приложении и лови даты раньше.",
     free: "Бесплатно", officesRow: "Офисов", intervalRow: "Проверка", radarRow: "Радар", appRow: "Приложение", adsRow: "Реклама", radarFree: "1 в день", radarTop: "без лимита", yes: "да", no: "нет", noAds: "нет", ads: "по согласию",
     plan7: "7 дней", plan30: "30 дней", plan90: "90 дней", renew: "автопродление", free2: "Получить бесплатно за задания", perDay: "⭐ в день", hit: "Хит",
-    limit: "Лимит офисов исчерпан", failed: "Не получилось, попробуй ещё раз", demo: "DEMO", checking: "Проверка запущена", wait: "Подожди минуту", siteDown: "Сайт DGT недоступен",
+    limit: "Лимит офисов исчерпан", failed: "Не получилось, попробуй ещё раз", demo: "DEMO", checking: "Проверка запущена", wait: "Подожди минуту", siteDown: "Идут технические работы",
     needTelegram: "Открой приложение из Telegram.", booked: "Запись",
     mo: ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"], wd: ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"],
   },
@@ -29,13 +29,13 @@ const T = {
     days: "дн.", pause: "Пауза", resume: "Відновити", check: "Перевірити", remove: "Видалити", book: "Записатися на сайті DGT",
     confirmDelete: "Видалити цей офіс із підписок?", history: "Коли з’являлися місця", noHistory: "Поки місць тут не з’являлося.",
     held: "трималися", still: "ще є", min2: "хв", many: "багато", mid: "середньо", few: "мало", noDates: "Вільних дат зараз немає. Бот напише, щойно з’являться.",
-    outage: "Сайт DGT зараз недоступний для перевірок. Дані можуть бути неактуальні.",
+    outage: "Тривають технічні роботи. Дані можуть бути неактуальні.",
     invite: "Запроси друга", inviteText: "Ти й друг отримаєте бонус Premium, коли він додасть офіс.", copy: "Копіювати", copied: "Скопійовано", share: "Поділитися",
     invited: "Запрошено", counted: "Зараховано", tasks: "Завдання та промокоди", openBot: "Відкрити в боті",
     lockedTitle: "Міні-застосунок — для Premium", lockedText: "Керуй офісами у зручному застосунку й лови дати раніше.",
     free: "Безкоштовно", officesRow: "Офісів", intervalRow: "Перевірка", radarRow: "Радар", appRow: "Застосунок", adsRow: "Реклама", radarFree: "1 на день", radarTop: "без ліміту", yes: "так", no: "ні", noAds: "немає", ads: "за згодою",
     plan7: "7 днів", plan30: "30 днів", plan90: "90 днів", renew: "автопродовження", free2: "Отримати безкоштовно за завдання", perDay: "⭐ на день", hit: "Хіт",
-    limit: "Ліміт офісів вичерпано", failed: "Не вдалося, спробуй ще раз", demo: "DEMO", checking: "Перевірку запущено", wait: "Зачекай хвилину", siteDown: "Сайт DGT недоступний",
+    limit: "Ліміт офісів вичерпано", failed: "Не вдалося, спробуй ще раз", demo: "DEMO", checking: "Перевірку запущено", wait: "Зачекай хвилину", siteDown: "Тривають технічні роботи",
     needTelegram: "Відкрий застосунок із Telegram.", booked: "Запис",
     mo: ["Січень","Лютий","Березень","Квітень","Травень","Червень","Липень","Серпень","Вересень","Жовтень","Листопад","Грудень"], wd: ["Пн","Вт","Ср","Чт","Пт","Сб","Нд"],
   },
@@ -134,7 +134,7 @@ function officesTab() {
     h("div", { class: "ico " + tone(s.status) }, s.emoji),
     h("div", { class: "main" }, h("div", { class: "title" }, s.city), h("div", { class: "sub" }, s.type)),
     h("span", { class: "pill " + tone(s.status) }, s.nearest ? fmtDate(s.nearest) : s.status), h("span", { class: "chev" }, "›")));
-  page(hero(), me.outage ? h("div", { class: "notice" }, "🛑 " + L.outage) : null,
+  page(hero(), me.outage ? h("div", { class: "notice" }, "🛠 " + L.outage) : null,
     rows.length ? h("div", { class: "list" }, rows)
       : h("div", { class: "empty" }, h("img", { src: "/app/mark.svg", alt: "" }), L.empty), tabs());
 }
@@ -279,7 +279,7 @@ function locked() {
   mainButton(null);
   const row = (name, a, b) => h("tr", {}, h("td", {}, name), h("td", {}, a), h("td", {}, b));
   const label = { 7: L.plan7, 30: L.plan30, 90: L.plan90 };
-  const plans = me.outage ? [h("div", { class: "notice" }, "🛑 " + L.outage)] : me.plans.map((p) => h("button", { class: "plan" + (p.recurring ? " best" : ""), onclick: () => buy(p.id) },
+  const plans = me.outage ? [h("div", { class: "notice" }, "🛠 " + L.outage)] : me.plans.map((p) => h("button", { class: "plan" + (p.recurring ? " best" : ""), onclick: () => buy(p.id) },
     p.recurring ? h("span", { class: "badge" }, L.hit) : null,
     h("div", {}, h("div", { class: "plan-name" }, label[p.days]),
       h("div", { class: "sub" }, `≈ ${Math.max(1, Math.round(p.stars / p.days))} ${L.perDay}${p.recurring ? " · " + L.renew : ""}`)),

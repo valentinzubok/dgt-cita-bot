@@ -103,8 +103,8 @@ def start(chat: int, mid: int, cid: str, cat: str, km: int, token: Optional[int]
     lang = views.lang_of(chat)
     paid = premium.is_premium(chat)
     if checker.site_down():
-        return views.tx(lang, "🛑 Сайт DGT сейчас недоступен — радар не сможет проверить офисы",
-                        "🛑 Сайт DGT зараз недоступний — радар не зможе перевірити офіси")
+        return views.tx(lang, "🛠 Идут технические работы, радар временно не работает",
+                        "🛠 Тривають технічні роботи, радар тимчасово не працює")
     if chat in busy:
         return views.tx(lang, "📡 Радар уже работает — подожди результат", "📡 Радар уже працює — зачекай на результат")
     if not paid and km > RADII[0]:

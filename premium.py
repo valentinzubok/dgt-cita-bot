@@ -96,8 +96,8 @@ def on_pre_checkout(query: dict, site_down: bool) -> None:
     if not plan or query.get("currency") != "XTR" or query.get("total_amount") != plan_price(plan):
         error = "Цена изменилась. Открой оплату заново." if lang == "ru" else "Ціна змінилася. Відкрий оплату знову."
     elif site_down:
-        error = ("Сейчас проверки DGT не работают, оплату принимать нечестно. Попробуй позже."
-                 if lang == "ru" else "Зараз перевірки DGT не працюють, приймати оплату нечесно. Спробуй пізніше.")
+        error = ("Идут технические работы, оплата временно закрыта. Попробуй позже."
+                 if lang == "ru" else "Тривають технічні роботи, оплату тимчасово закрито. Спробуй пізніше.")
     p = {"pre_checkout_query_id": query["id"], "ok": error is None}
     if error:
         p["error_message"] = error

@@ -142,7 +142,7 @@ def check_all(chat: int, mid: Optional[int], token: int) -> Optional[str]:
         return tx(lang, "Все подписки на паузе", "Усі підписки на паузі") if subs else \
             tx(lang, "Сначала добавь офис", "Спочатку додай офіс")
     if checker.site_down():
-        return tx(lang, "🛑 Сайт DGT сейчас недоступен", "🛑 Сайт DGT зараз недоступний")
+        return tx(lang, "🛠 Идут технические работы", "🛠 Тривають технічні роботи")
     if too_often(chat):
         return tx(lang, "⏳ Только что проверял — попробуй через минуту", "⏳ Щойно перевіряв — спробуй за хвилину")
     mins = max(1, round(len(keys) * 25 / 60))
@@ -273,7 +273,7 @@ def on_message(msg: dict) -> None:
             tg.show(chat, *views.pending_view(lang))
             return None
         if store.setting("maintenance"):
-            tg.show(chat, *views.maintenance_view(lang))
+            tg.show(chat, *views.maintenance_view(lang), banner=views.banner())
             return None
 
     if text in LEGACY_BUTTONS or text.startswith("/start"):
@@ -405,7 +405,7 @@ def route_callback(cb: dict, chat: int, mid: int, data: str) -> Tuple[Optional[s
         return None, False
     lang = views.lang_of(chat)
     if store.setting("maintenance") and not views.is_admin(chat) and data != "hide":
-        tg.show(chat, *views.maintenance_view(lang), mid=mid)
+        tg.show(chat, *views.maintenance_view(lang), mid=mid, banner=views.banner())
         return None, False
     if data == "noop":
         return None, False
@@ -564,7 +564,7 @@ def sub_action(chat: int, mid: int, kind: str, rest: str, lang: str, token: int)
         tg.show(chat, *views.card(sub), mid=mid)
     elif kind == "r":
         if checker.site_down():
-            return tx(lang, "🛑 Сайт DGT сейчас недоступен", "🛑 Сайт DGT зараз недоступний"), False
+            return tx(lang, "🛠 Идут технические работы", "🛠 Тривають технічні роботи"), False
         if too_often(chat):
             return tx(lang, "⏳ Только что проверял — попробуй через минуту", "⏳ Щойно перевіряв — спробуй за хвилину"), False
         tg.show(chat, *views.card(sub, tx(lang, "🔄 <i>Проверяю… около минуты</i>", "🔄 <i>Перевіряю… близько хвилини</i>")), mid=mid)
