@@ -1,29 +1,34 @@
 """OkSita — Telegram-бот: уведомления о свободных датах cita previa DGT.
 
-На Render работает через webhook (+ health-эндпоинт на $PORT), локально — через long polling.
+На Render работает через webhook, локально — через long polling. Веб-часть — в webapp.py.
 """
 from __future__ import annotations
 
 import config  # noqa: F401 — первым: читает .env до остальных модулей
 
-import json
+import hashlib
 import logging
 import re
 import signal
 import sys
 import threading
 import time
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Dict, Optional, Tuple
 
+import actions
 import admin
 import checker
 import dgt
+import premium
 import radar
+import rewards
 import store
 import tg
 import views
+import webapp
 from tg import btn, ikb
 from views import tx
 
@@ -32,10 +37,16 @@ log = logging.getLogger("bot")
 
 LEGACY_BUTTONS = {"➕ Добавить офис": "/add", "📋 Мои подписки": "/list", "🔄 Проверить сейчас": "/check",
                   "⚙️ Настройки": "/settings", "❓ Помощь": "/help"}  # кнопки под полем ввода из первой версии
+ALLOWED_UPDATES = ["message", "callback_query", "pre_checkout_query", "subscription"]
+pool = ThreadPoolExecutor(max_workers=12, thread_name_prefix="update")
 last_manual: Dict[int, float] = {}
 told_banned: set = set()
 mode: Dict[int, str] = {}      # «radar» — пользователь выбирает офис для радара
-waiting: Dict[int, dict] = {}  # ждём от пользователя текст (дату визита)
+waiting: Dict[int, dict] = {}  # ждём от пользователя текст: дату визита, промокод, вопрос по оплате
+notes: Dict[int, tuple] = {}   # что показать после выбора языка
+_seen: deque = deque(maxlen=5000)
+_seen_set: set = set()
+_flood: Dict[int, deque] = {}
 
 
 # ---------- действия ----------
@@ -45,28 +56,29 @@ def home(chat: int, mid: Optional[int] = None, note: str = "") -> None:
     waiting.pop(chat, None)
     c = store.get_chat(chat)
     if not c.get("lang"):
-        tg.show(chat, *views.language_picker(), mid=mid)
+        tg.show(chat, *views.language_picker(), mid=mid, banner=views.banner())
         return
-    tg.show(chat, *views.dashboard(chat, c.get("name") or "", checker.status.get("next_cycle"), note), mid=mid)
+    tg.show(chat, *views.dashboard(chat, c.get("name") or "", checker.next_check_for(chat), note), mid=mid,
+            banner=views.banner())
 
 
-def search(chat: int, query: str) -> None:
-    q = views.fold(query.strip())
+def search(chat: int, query: str, token: int) -> None:
+    q = views.fold(query.strip())[:60]
     found = [c for c in dgt.CENTROS if q and q in views.fold(dgt.CENTROS[c])]
     prefix, pager = ("rb", "rp") if mode.get(chat) == "radar" else ("c", "p")
     if len(found) == 1:
         if prefix == "rb":
             tg.show(chat, *views.radar_categories(chat, found[0]))
         else:
-            open_office(chat, found[0])
+            open_office(chat, found[0], None, token)
     elif 1 < len(found) <= views.PAGE:
         tg.show(chat, *views.search_results(chat, query, found, prefix, pager))
     else:
-        header = views.too_many(chat) if found else views.not_found(chat, query)
+        header = views.too_many(chat) if found else views.not_found(chat, query[:60])
         tg.show(chat, *views.offices(chat, 0, header, prefix, pager))
 
 
-def open_office(chat: int, cid: str, mid: Optional[int] = None) -> None:
+def open_office(chat: int, cid: str, mid: Optional[int], token: int) -> None:
     """Типы записи офиса. У каждого офиса они свои, поэтому берём с сайта (и кэшируем на 3 дня)."""
     mode.pop(chat, None)
     cached = store.office_areas(cid)
@@ -74,50 +86,45 @@ def open_office(chat: int, cid: str, mid: Optional[int] = None) -> None:
         tg.show(chat, *views.areas(chat, cid, cached[1]), mid=mid)
         return
     lang = views.lang_of(chat)
+    if checker.site_down():
+        tg.show(chat, *(views.areas(chat, cid, cached[1]) if cached else views.areas_error(chat, cid, f"c:{cid}")), mid=mid)
+        return
     mid = tg.show(chat, *views.loading(tx(lang, "Загружаю услуги офиса ", "Завантажую послуги офісу ")
                                        + f"<b>{views.esc(views.city(cid))}</b>…"), mid=mid)
 
     def job() -> None:
-        try:
-            options = dgt.list_areas(cid)
-            store.save_office_areas(cid, options)
-            tg.show(chat, *views.areas(chat, cid, options), mid=mid)
-        except Exception as e:
-            log.warning("услуги офиса %s: %r", cid, e)
-            tg.show(chat, *(views.areas(chat, cid, cached[1]) if cached else views.areas_error(chat, cid, f"c:{cid}")),
-                    mid=mid)
+        options = radar.office_areas(cid)
+        if tg.same_screen(chat, token):
+            tg.show(chat, *(views.areas(chat, cid, options) if options else views.areas_error(chat, cid, f"c:{cid}")), mid=mid)
 
-    threading.Thread(target=job, daemon=True).start()
+    actions.jobs.submit(job)
 
 
-def subscribe(chat: int, mid: int, cid: str, area: str) -> None:
+def subscribe(chat: int, mid: int, cid: str, area: str, token: int) -> Optional[str]:
     lang = views.lang_of(chat)
-    mine = store.subs_of(chat)
-    exists = next((s for s in mine if s["centro"] == cid and s["area"] == area), None)
-    if exists:
-        tg.show(chat, *views.card(exists, tx(lang, "ℹ️ <i>Ты уже следишь за этим офисом.</i>",
-                                             "ℹ️ <i>Ти вже стежиш за цим офісом.</i>")), mid=mid)
-        return
-    limit = store.setting("max_subs")
-    if len(mine) >= limit:
-        tg.show(chat, tx(lang, f"😅 Можно следить максимум за {limit} офисами.\nУдали ненужную подписку и добавь новую.",
-                         f"😅 Можна стежити максимум за {limit} офісами.\nВидали непотрібну підписку й додай нову."),
-                ikb([[btn(tx(lang, "📋 Подписки", "📋 Підписки"), "l"), views.home_btn(lang)]]), mid=mid)
-        return
-    keys = store.active_keys()
-    if (cid, area) not in keys and len(keys) >= config.MAX_OFFICES:
+    first = not store.task_is_done("b:sub", chat)
+    status, sub = actions.add_subscription(chat, cid, area)
+    if status == "exists":
+        tg.show(chat, *views.card(sub, tx(lang, "ℹ️ <i>Ты уже следишь за этим офисом.</i>",
+                                          "ℹ️ <i>Ти вже стежиш за цим офісом.</i>")), mid=mid)
+    elif status == "limit":
+        tg.show(chat, *views.limit_view(chat), mid=mid)
+    elif status == "full":
         tg.show(chat, tx(lang, "😅 Бот сейчас следит за максимальным числом офисов. Попробуй позже.",
                          "😅 Бот зараз стежить за максимальною кількістю офісів. Спробуй пізніше."),
                 ikb([[views.home_btn(lang)]]), mid=mid)
-        return
-    sub, _ = store.add_sub(chat, cid, area, dgt.AREA_LABELS.get(area, area))
-    mid = tg.show(chat, tx(lang, "✅ <b>Подписка оформлена</b>\n", "✅ <b>Підписку оформлено</b>\n")
-                  + f"🏢 {views.title(sub)}\n\n"
-                  + tx(lang, "⏳ Делаю первую проверку — около минуты…", "⏳ Роблю першу перевірку — близько хвилини…"),
-                  ikb([]), mid=mid)
-    store.bump("subs")
-    checker.event(f"➕ Подписка: {views.plain_title(sub)} ({store.get_chat(chat).get('name') or chat})", "user")
-    threading.Thread(target=checker.run_checks, args=([(cid, area)], {chat: mid}), daemon=True).start()
+    elif status == "ok":
+        if checker.site_down():
+            tg.show(chat, *views.card(sub), mid=mid)
+        else:
+            mid = tg.show(chat, tx(lang, "✅ <b>Подписка оформлена</b>\n", "✅ <b>Підписку оформлено</b>\n")
+                          + f"🏢 {views.title(sub)}\n\n"
+                          + tx(lang, "⏳ Делаю первую проверку — около минуты…", "⏳ Роблю першу перевірку — близько хвилини…"),
+                          ikb([]), mid=mid)
+            actions.check_now(sub, (mid, token))
+        if first:
+            return tx(lang, "🎁 +6 ч Premium за первый офис", "🎁 +6 год Premium за перший офіс")
+    return None
 
 
 def too_often(chat: int) -> bool:
@@ -127,26 +134,29 @@ def too_often(chat: int) -> bool:
     return False
 
 
-def check_all(chat: int, mid: Optional[int]) -> Optional[str]:
+def check_all(chat: int, mid: Optional[int], token: int) -> Optional[str]:
     lang = views.lang_of(chat)
     subs = store.subs_of(chat)
     keys = sorted({(s["centro"], s["area"]) for s in subs if not s["paused"]})
     if not keys:
         return tx(lang, "Все подписки на паузе", "Усі підписки на паузі") if subs else \
             tx(lang, "Сначала добавь офис", "Спочатку додай офіс")
+    if checker.site_down():
+        return tx(lang, "🛑 Сайт DGT сейчас недоступен", "🛑 Сайт DGT зараз недоступний")
     if too_often(chat):
         return tx(lang, "⏳ Только что проверял — попробуй через минуту", "⏳ Щойно перевіряв — спробуй за хвилину")
     mins = max(1, round(len(keys) * 25 / 60))
     offices = views.pl(lang, len(keys), ("офис", "офиса", "офисов"), ("офіс", "офіси", "офісів"))
     mid = tg.show(chat, *views.dashboard(chat, "", None, tx(lang, f"🔄 <b>Проверяю {offices}…</b> около {mins} мин",
                                                               f"🔄 <b>Перевіряю {offices}…</b> близько {mins} хв")),
-                  mid=mid)
+                  mid=mid, banner=views.banner())
 
     def job() -> None:
         checker.run_checks(keys)
-        home(chat, mid, tx(lang, "✅ <b>Проверка завершена</b>", "✅ <b>Перевірку завершено</b>"))
+        if tg.same_screen(chat, token):
+            home(chat, mid, tx(lang, "✅ <b>Проверка завершена</b>", "✅ <b>Перевірку завершено</b>"))
 
-    threading.Thread(target=job, daemon=True).start()
+    actions.jobs.submit(job)
     return None
 
 
@@ -158,6 +168,7 @@ def save_booking(chat: int, mid: Optional[int], sub: dict, iso: str, hhmm: Optio
     store.update_sub(sub["id"], booked_date=iso, booked_time=hhmm, reminded=bits, paused=1, alert_msg=None)
     store.bump("bookings")
     store.bump_chat(chat, "bookings")
+    rewards.complete_builtin(chat, "b:book")
     checker.event(f"✅ Записался: {store.get_chat(chat).get('name') or chat} — {views.plain_title(sub)} {iso}", "user")
     tg.show(chat, *views.card(store.get_sub(sub["id"])), mid=mid)
 
@@ -198,39 +209,72 @@ def on_new_user(chat: int, c: dict) -> None:
         checker.notify_admins(f"👤 <b>Новый пользователь</b>\n{who}", [card])
 
 
+def handle_start_arg(chat: int, arg: str, is_new: bool) -> None:
+    """Пригласительная ссылка (r_…), промо-ссылка (promo_…) или метка рекламного источника."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,60}", arg):
+        return
+    if arg.startswith("promo_"):
+        status, hours = rewards.apply_promo(chat, arg[6:])
+        notes[chat] = ("promo", status, hours)
+        if is_new:
+            store.set_chat(chat, source=arg[:40])
+    elif arg.startswith("r_"):
+        if is_new and rewards.attach_referrer(chat, arg[2:]):
+            store.set_chat(chat, source="ref")
+            notes[chat] = ("ref",)
+    elif is_new:
+        store.set_chat(chat, source=arg[:40])
+
+
+def consume_note(chat: int) -> str:
+    note = notes.pop(chat, None)
+    lang = views.lang_of(chat)
+    if not note:
+        return ""
+    return views.ref_welcome(lang) if note[0] == "ref" else views.promo_result(lang, note[1], note[2])
+
+
 # ---------- обработчики ----------
 
 def on_message(msg: dict) -> None:
-    if msg.get("chat", {}).get("type") != "private":
+    chat_info = msg.get("chat") or {}
+    if chat_info.get("type") != "private":
         return
-    chat = msg["chat"]["id"]
-    frm = msg.get("from", {})
-    c, is_new = store.touch_chat(chat, frm.get("first_name", ""), frm.get("username", ""))
+    chat = chat_info["id"]
+    frm = msg.get("from") or {}
+    c, is_new = store.touch_chat(chat, str(frm.get("first_name") or "")[:64], str(frm.get("username") or "")[:64])
+    if msg.get("successful_payment"):
+        return on_paid(msg)
+    if msg.get("refunded_payment"):
+        premium.on_refund(msg)
+        store.bump("refunds")
+        checker.event(f"💸 Возврат: {c.get('name') or chat}", "money")
+        return None
+    text = (msg.get("text") or "").strip()
+    if text.startswith("/start "):
+        handle_start_arg(chat, text[7:].strip(), is_new)
+        c = store.get_chat(chat)
     if is_new:
-        start_arg = (msg.get("text") or "").partition(" ")[2].strip()
-        if re.fullmatch(r"[A-Za-z0-9_-]{1,40}", start_arg):  # t.me/oksitabot?start=fb_alicante — откуда пришёл
-            store.set_chat(chat, source=start_arg)
-            c = store.get_chat(chat)
         on_new_user(chat, c)
         c = store.get_chat(chat)
     if views.is_admin(chat) and admin.handle_input(msg):
-        return
+        return None
 
-    text = (msg.get("text") or "").strip()
     tg.call("deleteMessage", chat_id=chat, message_id=msg["message_id"])  # чат остаётся чистым
     lang = c.get("lang") or "ru"
+    token = tg.navigate(chat)
     if not views.is_admin(chat):
         if c.get("role") == "banned":
             if chat not in told_banned:
                 told_banned.add(chat)
                 tg.show(chat, *views.banned_view(lang))
-            return
+            return None
         if c.get("role") == "pending":
             tg.show(chat, *views.pending_view(lang))
-            return
+            return None
         if store.setting("maintenance"):
             tg.show(chat, *views.maintenance_view(lang))
-            return
+            return None
 
     if text in LEGACY_BUTTONS or text.startswith("/start"):
         tg.remove_reply_keyboard(chat)
@@ -243,85 +287,146 @@ def on_message(msg: dict) -> None:
         cmd, arg = "", text
 
     if not c.get("lang") and cmd != "/lang":
-        tg.show(chat, *views.language_picker())
-        return
+        tg.show(chat, *views.language_picker(), banner=views.banner())
+        return None
 
     w = waiting.get(chat)
-    if w and not cmd:
+    if w and not cmd and text:
+        return on_waited_text(chat, c, lang, w, text)
+
+    if cmd in ("/start", "/menu"):
+        home(chat, note=consume_note(chat))
+    elif cmd in ("/add", "/centros"):
+        mode.pop(chat, None)
+        search(chat, arg, token) if arg.strip() else tg.show(chat, *views.offices(chat, 0))
+    elif cmd == "/radar":
+        mode[chat] = "radar"
+        tg.show(chat, *views.radar_start(chat), banner=views.banner("radar"))
+    elif cmd == "/list":
+        tg.show(chat, *views.subs_list(chat))
+    elif cmd == "/check":
+        note = check_all(chat, None, token)
+        if note:
+            home(chat, note=note)
+    elif cmd == "/premium":
+        tg.show(chat, *views.premium_view(chat), banner=views.banner("premium"))
+    elif cmd == "/bonus":
+        tg.show(chat, *views.bonus_view(chat), banner=views.banner("bonus"))
+    elif cmd == "/promo":
+        if arg.strip():
+            status, hours = rewards.apply_promo(chat, arg.strip())
+            tg.show(chat, *views.premium_view(chat, views.promo_result(lang, status, hours)), banner=views.banner("premium"))
+        else:
+            waiting[chat] = {"kind": "promo"}
+            tg.show(chat, *views.promo_prompt(chat))
+    elif cmd == "/settings":
+        tg.show(chat, *views.settings_view(chat))
+    elif cmd == "/help":
+        tg.show(chat, *views.help_view(chat))
+    elif cmd == "/terms":
+        tg.show(chat, *views.terms_view(chat))
+    elif cmd in ("/paysupport", "/support"):
+        waiting[chat] = {"kind": "support"}
+        tg.show(chat, *views.paysupport_view(chat))
+    elif cmd == "/ua":
+        tg.show(chat, *views.ukraine_view(chat))
+    elif cmd == "/lang":
+        tg.show(chat, *views.language_picker(), banner=views.banner())
+    elif cmd == "/privacy":
+        tg.show(chat, *views.privacy_view(chat))
+    elif cmd == "/admin" and views.is_admin(chat):
+        tg.show(chat, *admin.panel())
+    elif not cmd and arg:
+        search(chat, arg, token)
+    else:
+        home(chat)
+    return None
+
+
+def on_waited_text(chat: int, c: dict, lang: str, w: dict, text: str) -> None:
+    if w["kind"] == "book":
         sub = store.get_sub(w["sid"])
-        parsed = parse_booking(arg)
-        if sub and parsed:
+        parsed = parse_booking(text)
+        if sub and sub["chat"] == chat and parsed:
             waiting.pop(chat, None)
             save_booking(chat, w["screen"], sub, *parsed)
         elif sub:
             tg.show(chat, tx(lang, "🤔 Не понял дату. Напиши, например, <code>10.10 10:30</code>",
                              "🤔 Не зрозумів дату. Напиши, наприклад, <code>10.10 10:30</code>"),
                     ikb([[btn(tx(lang, "Отмена", "Скасувати"), f"bk:{sub['id']}")]]), mid=w["screen"])
-        return
+    elif w["kind"] == "promo":
+        waiting.pop(chat, None)
+        status, hours = rewards.apply_promo(chat, text)
+        if status == "ok":
+            checker.event(f"🎟 Промокод: {text[:32]} ({c.get('name') or chat})", "user")
+        tg.show(chat, *views.premium_view(chat, views.promo_result(lang, status, hours)), banner=views.banner("premium"))
+    elif w["kind"] == "support":
+        waiting.pop(chat, None)
+        checker.notify_admins(f"💳 <b>Вопрос по оплате</b>\n{admin.uname(c)} · <code>{chat}</code>\n\n{views.esc(text[:1000])}",
+                              [[btn("✉️ Ответить", f"ad:um:{chat}"), btn("👤 Карточка", f"ad:uc:{chat}")]], silent=False)
+        home(chat, note=tx(lang, "✅ Передал администратору. Ответ придёт сюда.", "✅ Передав адміністратору. Відповідь надійде сюди."))
 
-    if cmd in ("/start", "/menu"):
-        home(chat)
-    elif cmd in ("/add", "/centros"):
-        mode.pop(chat, None)
-        search(chat, arg) if arg.strip() else tg.show(chat, *views.offices(chat, 0))
-    elif cmd == "/radar":
-        mode[chat] = "radar"
-        tg.show(chat, *views.radar_start(chat))
-    elif cmd == "/list":
-        tg.show(chat, *views.subs_list(chat))
-    elif cmd == "/check":
-        note = check_all(chat, None)
-        if note:
-            home(chat, note=note)
-    elif cmd == "/settings":
-        tg.show(chat, *views.settings_view(chat))
-    elif cmd == "/help":
-        tg.show(chat, *views.help_view(chat))
-    elif cmd == "/ua":
-        tg.show(chat, *views.ukraine_view(chat))
-    elif cmd == "/lang":
-        tg.show(chat, *views.language_picker())
-    elif cmd == "/privacy":
-        tg.show(chat, *views.privacy_view(chat))
-    elif cmd == "/admin" and views.is_admin(chat):
-        tg.show(chat, *admin.panel())
-    elif not cmd and arg:
-        search(chat, arg)
-    else:
-        home(chat)
+
+def on_paid(msg: dict) -> None:
+    chat = msg["chat"]["id"]
+    done = premium.on_payment(msg)
+    if not done:
+        return
+    plan, stars = done
+    c = store.get_chat(chat)
+    lang = c.get("lang") or "ru"
+    checker.event(f"💰 Оплата: {c.get('name') or chat} — {plan}, {stars} ⭐", "money")
+    checker.notify_admins(f"💰 <b>Оплата</b>\n{admin.uname(c)} — {premium.PLANS[plan]['days']} дн., {stars} ⭐",
+                          [[btn("👤 Карточка", f"ad:uc:{chat}")]])
+    tg.send(chat, views.thanks_text(lang, plan, c.get("premium_until") or 0), ikb([[views.home_btn(lang)]]),
+            effect=premium.BOOKED_EFFECT)
 
 
 def on_callback(cb: dict) -> None:
     msg = cb.get("message") or {}
-    chat, mid, data = msg.get("chat", {}).get("id"), msg.get("message_id"), cb.get("data") or ""
-    if not chat:
-        return tg.answer(cb["id"])
-    c = store.get_chat(chat)
-    if c.get("role") in ("banned", "pending") and not views.is_admin(chat):
-        return tg.answer(cb["id"])
-    lang = views.lang_of(chat)
-    if store.setting("maintenance") and not views.is_admin(chat) and cb.get("data") != "hide":
-        tg.show(chat, *views.maintenance_view(lang), mid=mid)
+    chat, mid, data = (msg.get("chat") or {}).get("id"), msg.get("message_id"), cb.get("data") or ""
+    if not chat or not mid:
         return tg.answer(cb["id"])
     toast, popup = None, False
+    try:
+        toast, popup = route_callback(cb, chat, mid, data)
+    except Exception:
+        log.exception("ошибка кнопки %s", data[:24])
+        lang = views.lang_of(chat)
+        toast = tx(lang, "😕 Что-то пошло не так, попробуй ещё раз", "😕 Щось пішло не так, спробуй ще раз")
+    tg.answer(cb["id"], toast or "", popup)
+
+
+def route_callback(cb: dict, chat: int, mid: int, data: str) -> Tuple[Optional[str], bool]:
+    frm = cb.get("from") or {}
+    store.touch_chat(chat, str(frm.get("first_name") or "")[:64], str(frm.get("username") or "")[:64])
+    c = store.get_chat(chat)
+    if c.get("role") in ("banned", "pending") and not views.is_admin(chat):
+        return None, False
+    lang = views.lang_of(chat)
+    if store.setting("maintenance") and not views.is_admin(chat) and data != "hide":
+        tg.show(chat, *views.maintenance_view(lang), mid=mid)
+        return None, False
+    if data == "noop":
+        return None, False
     kind, _, rest = data.partition(":")
-    if kind not in ("bo", "noop"):
+    token = tg.navigate(chat) if kind != "d" else 0
+    if kind != "bo":
         waiting.pop(chat, None)
 
     if kind == "ad":
-        toast = admin.on_callback(chat, mid, rest) if views.is_admin(chat) else None
-    elif data == "noop":
-        pass
-    elif kind == "lg" and rest[:2] in views.LANGS:
+        return (admin.on_callback(chat, mid, rest) if views.is_admin(chat) else None), False
+    if kind == "lg" and rest[:2] in views.LANGS:
         store.set_chat(chat, lang=rest[:2])
+        premium.apply_menu_button(chat)
         if rest.endswith(":st"):
             tg.show(chat, *views.settings_view(chat), mid=mid)
         else:
-            home(chat, mid)
+            home(chat, mid, consume_note(chat))
     elif data == "lp":
         tg.show(chat, *views.language_picker("st"), mid=mid)
     elif not c.get("lang"):
-        tg.show(chat, *views.language_picker(), mid=mid)
+        tg.show(chat, *views.language_picker(), mid=mid, banner=views.banner())
     elif data == "hide":
         if not (tg.call("deleteMessage", chat_id=chat, message_id=mid) or {}).get("ok"):
             tg.edit(chat, mid, "·")
@@ -329,41 +434,79 @@ def on_callback(cb: dict) -> None:
             store.set_chat(chat, screen=None)
     elif data == "home":
         home(chat, mid)
-    elif kind == "p":
+    elif kind == "p" and re.fullmatch(r"-?\d{1,3}", rest):
         mode.pop(chat, None)
-        tg.show(chat, *views.offices(chat, int(rest or 0)), mid=mid)
+        tg.show(chat, *views.offices(chat, int(rest)), mid=mid)
     elif kind == "c" and rest in dgt.CENTROS:
-        open_office(chat, rest, mid)
+        open_office(chat, rest, mid, token)
     elif kind == "a":
         cid, _, area = rest.partition(":")
-        if cid in dgt.CENTROS and area:
-            subscribe(chat, mid, cid, area)
+        return subscribe(chat, mid, cid, area, token), False
     elif data == "rd":
         mode[chat] = "radar"
-        tg.show(chat, *views.radar_start(chat), mid=mid)
-    elif kind == "rp":
+        tg.show(chat, *views.radar_start(chat), mid=mid, banner=views.banner("radar"))
+    elif kind == "rp" and re.fullmatch(r"-?\d{1,3}", rest):
         mode[chat] = "radar"
-        tg.show(chat, *views.offices(chat, int(rest or 0), tx(lang, "📡 <b>Радар</b> · от какого офиса искать?",
-                                                               "📡 <b>Радар</b> · від якого офісу шукати?"), "rb", "rp"),
-                mid=mid)
+        tg.show(chat, *views.offices(chat, int(rest), tx(lang, "📡 <b>Радар</b> · от какого офиса искать?",
+                                                          "📡 <b>Радар</b> · від якого офісу шукати?"), "rb", "rp"), mid=mid)
     elif kind == "rb" and rest in dgt.CENTROS:
         tg.show(chat, *views.radar_categories(chat, rest), mid=mid)
     elif kind == "rr":
         cid, cat, km = (rest.split(":") + ["", "", ""])[:3]
-        if cid in dgt.CENTROS and cat in views.CATS and km.isdigit():
+        if cid in dgt.CENTROS and cat in views.CATS and km.isdigit() and int(km) in radar.RADII:
             mode.pop(chat, None)
-            toast = radar.start(chat, mid, cid, cat, int(km))
-            popup = bool(toast)
+            toast = radar.start(chat, mid, cid, cat, int(km), token)
+            return toast, bool(toast)
     elif data == "l":
         tg.show(chat, *views.subs_list(chat), mid=mid)
     elif data == "ca":
-        toast = check_all(chat, mid)
+        return check_all(chat, mid, token), False
     elif data == "st":
         tg.show(chat, *views.settings_view(chat), mid=mid)
     elif data == "hp":
         tg.show(chat, *views.help_view(chat), mid=mid)
     elif data == "ua":
         tg.show(chat, *views.ukraine_view(chat), mid=mid)
+    elif data == "tm":
+        tg.show(chat, *views.terms_view(chat), mid=mid)
+    elif data == "pr":
+        tg.show(chat, *views.premium_view(chat), mid=mid, banner=views.banner("premium"))
+    elif data == "pc":
+        ok = premium.cancel(chat)
+        checker.event(f"🚫 Автопродление отключено ({c.get('name') or chat})", "money")
+        tg.show(chat, *views.premium_view(chat, tx(lang, "✅ Автопродление отключено. Premium работает до конца срока.",
+                                                   "✅ Автопродовження вимкнено. Premium працює до кінця терміну.") if ok else
+                                          tx(lang, "😕 Не получилось отключить, попробуй позже.",
+                                             "😕 Не вдалося вимкнути, спробуй пізніше.")), mid=mid, banner=views.banner("premium"))
+    elif data == "pm":
+        waiting[chat] = {"kind": "promo"}
+        tg.show(chat, *views.promo_prompt(chat), mid=mid)
+    elif data == "bn":
+        tg.show(chat, *views.bonus_view(chat), mid=mid, banner=views.banner("bonus"))
+    elif data == "bc":
+        status, count = rewards.collect(chat)
+        if status == "channel":
+            task = rewards.required_task()
+            title = tx(lang, task["title_ru"], task["title_uk"]) if task else ""
+            return tx(lang, f"Сначала подпишись: {title}", f"Спочатку підпишись: {title}"), True
+        hours = int(store.setting("ref_hours")) * count
+        note = tx(lang, f"🎉 +{views.hours_text(lang, hours)} Premium!", f"🎉 +{views.hours_text(lang, hours)} Premium!") if status == "ok" else \
+            tx(lang, "Лимит наград за друзей на этот месяц исчерпан.", "Ліміт нагород за друзів на цей місяць вичерпано.")
+        tg.show(chat, *views.bonus_view(chat, note), mid=mid, banner=views.banner("bonus"))
+    elif kind == "tc" and rest.isdigit():
+        return check_task(chat, mid, int(rest), lang), True
+    elif kind == "adt":
+        on = not c.get("ads_ok")
+        store.set_chat(chat, ads_ok=int(on))
+        if on:
+            rewards.complete_builtin(chat, "b:ads")
+        tg.show(chat, *(views.bonus_view(chat) if rest == "b" else views.settings_view(chat)), mid=mid,
+                banner=views.banner("bonus") if rest == "b" else None)
+        return tx(lang, "Можно отключить в настройках в любой момент", "Можна вимкнути в налаштуваннях будь-коли") if on else None, False
+    elif data == "noads":
+        store.set_chat(chat, ads_ok=0)
+        tg.delete(chat, mid)
+        return tx(lang, "🔕 Реклама отключена", "🔕 Рекламу вимкнено"), False
     elif data == "q":
         store.set_chat(chat, quiet=0 if c.get("quiet") else 1)
         tg.show(chat, *views.settings_view(chat), mid=mid)
@@ -374,146 +517,196 @@ def on_callback(cb: dict) -> None:
     elif data == "dm!":
         for s in store.subs_of(chat):
             tg.delete(chat, s.get("alert_msg"))
+        premium.cancel(chat)
         store.delete_chat(chat)
+        tg.set_menu_button(chat, None)
         checker.event(f"🗑 Пользователь удалил свои данные ({chat})", "user")
         tg.edit(chat, mid, views.deleted_text(lang), ikb([]))
     elif data == "xa":
         tg.show(chat, tx(lang, "🗑 <b>Удалить все подписки?</b>\nУведомления перестанут приходить.",
                          "🗑 <b>Видалити всі підписки?</b>\nСповіщення перестануть надходити."),
-                ikb([[btn(tx(lang, "Да, удалить всё", "Так, видалити все"), "xa!"), btn(tx(lang, "Отмена", "Скасувати"), "st")]]),
-                mid=mid)
+                ikb([[btn(tx(lang, "Да, удалить всё", "Так, видалити все"), "xa!", "danger"),
+                      btn(tx(lang, "Отмена", "Скасувати"), "st")]]), mid=mid)
     elif data == "xa!":
         for s in store.subs_of(chat):
             tg.delete(chat, s.get("alert_msg"))
         store.forget_chat(chat)
         home(chat, mid, tx(lang, "🗑 Все подписки удалены.", "🗑 Усі підписки видалено."))
     elif kind in ("s", "r", "h", "f", "fs", "z", "x", "xx", "k", "d", "rs", "bk", "bd", "bt", "bo", "ub"):
-        toast, popup = sub_action(chat, mid, kind, rest, lang)
-    tg.answer(cb["id"], toast or "", popup)
+        return sub_action(chat, mid, kind, rest, lang, token)
+    return None, False
 
 
-def sub_action(chat: int, mid: int, kind: str, rest: str, lang: str) -> Tuple[Optional[str], bool]:
+def check_task(chat: int, mid: int, tid: int, lang: str) -> str:
+    status, hours = rewards.check_task(chat, tid)
+    if status == "ok":
+        tg.show(chat, *views.bonus_view(chat, tx(lang, f"🎉 +{views.hours_text(lang, hours)} Premium!",
+                                                 f"🎉 +{views.hours_text(lang, hours)} Premium!")), mid=mid, banner=views.banner("bonus"))
+        inviter = rewards.try_activate_friend(chat)
+        if inviter:
+            actions.notify_inviter(inviter)
+        return tx(lang, "Задание выполнено!", "Завдання виконано!")
+    return {
+        "done": tx(lang, "Это задание уже выполнено", "Це завдання вже виконано"),
+        "no": tx(lang, "Пока не вижу выполнения. Сделай задание и нажми ещё раз.", "Поки не бачу виконання. Зроби завдання й натисни ще раз."),
+        "bot": tx(lang, "Не могу проверить, напиши администратору", "Не можу перевірити, напиши адміністратору"),
+    }.get(status, tx(lang, "Задание больше не действует", "Завдання більше не діє"))
+
+
+def sub_action(chat: int, mid: int, kind: str, rest: str, lang: str, token: int) -> Tuple[Optional[str], bool]:
     sid, _, extra = rest.partition(":")
     sub = store.get_sub(int(sid)) if sid.isdigit() else None
     if not sub or sub["chat"] != chat:
         tg.show(chat, tx(lang, "Эта подписка уже удалена.", "Цю підписку вже видалено."),
-                ikb([[btn(tx(lang, "📋 Подписки", "📋 Підписки"), "l"), views.home_btn(lang)]]), mid=mid)
+                ikb([[btn(tx(lang, "📋 Мои офисы", "📋 Мої офіси"), "l"), views.home_btn(lang)]]), mid=mid)
         return None, False
     if kind == "s":
         tg.show(chat, *views.card(sub), mid=mid)
     elif kind == "r":
+        if checker.site_down():
+            return tx(lang, "🛑 Сайт DGT сейчас недоступен", "🛑 Сайт DGT зараз недоступний"), False
         if too_often(chat):
             return tx(lang, "⏳ Только что проверял — попробуй через минуту", "⏳ Щойно перевіряв — спробуй за хвилину"), False
-        tg.show(chat, *views.card(sub, tx(lang, "🔄 <i>Проверяю… около минуты</i>", "🔄 <i>Перевіряю… близько хвилини</i>")),
-                mid=mid)
-        threading.Thread(target=checker.run_checks, args=([(sub["centro"], sub["area"])], {chat: mid}),
-                         daemon=True).start()
+        tg.show(chat, *views.card(sub, tx(lang, "🔄 <i>Проверяю… около минуты</i>", "🔄 <i>Перевіряю… близько хвилини</i>")), mid=mid)
+        actions.check_now(sub, (mid, token))
     elif kind == "h":
         tg.show(chat, *views.history_view(sub), mid=mid)
     elif kind == "f":
         tg.show(chat, *views.filter_view(sub), mid=mid)
     elif kind == "fs" and extra.isdigit():
-        store.update_sub(sub["id"], max_days=int(extra) or None)
-        tg.show(chat, *views.card(store.get_sub(sub["id"])), mid=mid)
+        if actions.set_filter(sub, int(extra)):
+            tg.show(chat, *views.card(store.get_sub(sub["id"])), mid=mid)
     elif kind == "z":
-        store.update_sub(sub["id"], paused=0 if sub["paused"] else 1)
+        status = actions.set_paused(sub, not sub["paused"])
+        if status == "limit":
+            tg.show(chat, *views.limit_view(chat), mid=mid)
+            return None, False
         tg.show(chat, *views.card(store.get_sub(sub["id"])), mid=mid)
+        if status == "booked":
+            return None, False
         return (tx(lang, "▶️ Снова слежу", "▶️ Знову стежу") if sub["paused"]
                 else tx(lang, "⏸ Подписка на паузе", "⏸ Підписка на паузі")), False
     elif kind == "x":
         tg.show(chat, *views.delete_confirm(sub), mid=mid)
     elif kind == "xx":
-        tg.delete(chat, sub.get("alert_msg"))
-        store.delete_sub(sub["id"])
-        tg.show(chat, *views.subs_list(chat, tx(lang, "🗑 Подписка удалена: ", "🗑 Підписку видалено: ")
-                                       + views.title(sub)), mid=mid)
+        actions.remove_sub(sub)
+        tg.show(chat, *views.subs_list(chat, tx(lang, "🗑 Подписка удалена: ", "🗑 Підписку видалено: ") + views.title(sub)), mid=mid)
     elif kind == "k":
-        tg.show(chat, *views.calendar_view(sub, int(extra) if extra.lstrip("-").isdigit() else 0), mid=mid)
+        tg.show(chat, *views.calendar_view(sub, int(extra) if re.fullmatch(r"-?\d{1,3}", extra) else 0), mid=mid)
     elif kind == "d":
-        return views.day_popup(sub, extra), True
+        if actions.valid_iso(extra):
+            return views.day_popup(sub, extra), True
     elif kind == "rs":
         cats = views.cats_of(views.sub_area(sub))
         cat = "lic" if "lic" in cats else next(iter(cats), "lic")
-        return radar.start(chat, mid, sub["centro"], cat, 100), True
+        toast = radar.start(chat, mid, sub["centro"], cat, 100, token)
+        return toast, bool(toast)
     elif kind == "bk":
         if views.all_days(sub.get("last")):
             tg.show(chat, *views.booking_dates(sub), mid=mid)
         else:
-            waiting[chat] = {"sid": sub["id"], "screen": mid}
+            waiting[chat] = {"kind": "book", "sid": sub["id"], "screen": mid}
             tg.show(chat, *views.booking_prompt(sub), mid=mid)
-    elif kind == "bd":
+    elif kind == "bd" and actions.valid_iso(extra):
         if views.hours_for(sub.get("last"), extra):
             tg.show(chat, *views.booking_times(sub, extra), mid=mid)
         else:
             save_booking(chat, mid, sub, extra, None)
     elif kind == "bt":
         iso, _, hhmm = extra.partition(":")
-        save_booking(chat, mid, sub, iso, f"{hhmm[:2]}:{hhmm[2:]}" if hhmm.isdigit() else None)
+        if actions.valid_iso(iso) and re.fullmatch(r"\d{4}|-", hhmm):
+            save_booking(chat, mid, sub, iso, f"{hhmm[:2]}:{hhmm[2:]}" if hhmm != "-" else None)
     elif kind == "bo":
-        waiting[chat] = {"sid": sub["id"], "screen": mid}
+        waiting[chat] = {"kind": "book", "sid": sub["id"], "screen": mid}
         tg.show(chat, *views.booking_prompt(sub), mid=mid)
     elif kind == "ub":
         tg.delete(chat, sub.get("alert_msg"))
-        store.update_sub(sub["id"], booked_date=None, booked_time=None, reminded=0, paused=0, alert_msg=None)
-        tg.show(chat, *views.card(store.get_sub(sub["id"]), tx(lang, "▶️ <i>Снова ищу свободные даты.</i>",
-                                                                "▶️ <i>Знову шукаю вільні дати.</i>")), mid=mid)
+        note = (tx(lang, "▶️ <i>Снова ищу свободные даты.</i>", "▶️ <i>Знову шукаю вільні дати.</i>") if actions.unbook(sub) else
+                tx(lang, "⏸ <i>Запись отменена. Подписка на паузе: по тарифу нет свободного места.</i>",
+                   "⏸ <i>Запис скасовано. Підписка на паузі: за тарифом немає вільного місця.</i>"))
+        tg.show(chat, *views.card(store.get_sub(sub["id"]), note), mid=mid)
     return None, False
+
+
+def on_subscription(update: dict) -> None:
+    state = premium.on_subscription_update(update)
+    chat = (update.get("user") or {}).get("id")
+    if not chat or state not in ("canceled", "failed"):
+        return
+    lang = views.lang_of(chat)
+    checker.event(f"🔁 Подписка {state}: {store.get_chat(chat).get('name') or chat}", "money")
+    if state == "failed":
+        tg.send(chat, tx(lang, "😕 Не удалось продлить Premium: не хватило звёзд. Пополни баланс и продли вручную.",
+                         "😕 Не вдалося продовжити Premium: не вистачило зірок. Поповни баланс і продовж вручну."),
+                ikb([[btn("💎 Premium", "pr", "success"), btn(tx(lang, "✖️ Скрыть", "✖️ Сховати"), "hide")]]))
+
+
+def chat_of(update: dict) -> Optional[int]:
+    if "message" in update:
+        return (update["message"].get("chat") or {}).get("id")
+    if "callback_query" in update:
+        return ((update["callback_query"].get("message") or {}).get("chat") or {}).get("id")
+    return None
+
+
+def flooded(chat: int) -> bool:
+    """Больше 20 действий за 10 секунд от одного человека — лишние отбрасываем."""
+    now = time.time()
+    q = _flood.setdefault(chat, deque())
+    while q and q[0] < now - 10:
+        q.popleft()
+    q.append(now)
+    return len(q) > 20
 
 
 def dispatch(update: dict) -> None:
     try:
-        if "message" in update:
-            on_message(update["message"])
-        elif "callback_query" in update:
-            on_callback(update["callback_query"])
+        if "subscription" in update:
+            return on_subscription(update["subscription"])
+        chat = chat_of(update)
+        if chat is None:
+            return None
+        payment = "message" in update and (update["message"].get("successful_payment") or update["message"].get("refunded_payment"))
+        if flooded(chat) and not payment:
+            if "callback_query" in update:
+                tg.answer(update["callback_query"]["id"])
+            return None
+        with actions.chat_lock(chat):
+            if "message" in update:
+                on_message(update["message"])
+            else:
+                on_callback(update["callback_query"])
     except Exception:
         log.exception("ошибка обработки апдейта")
+    return None
 
 
-# ---------- запуск ----------
-
-class Handler(BaseHTTPRequestHandler):
-    def _reply(self, code: int, body: bytes = b"") -> None:
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(body)
-
-    def do_GET(self) -> None:
-        if self.path.split("?")[0] in ("/", "/health"):
-            status = {k: v for k, v in checker.status.items()}
-            self._reply(200, json.dumps({"ok": True, "token": bool(config.TOKEN), **status}).encode())
-        else:
-            self._reply(404)
-
-    do_HEAD = do_GET
-
-    def do_POST(self) -> None:
-        if self.path != "/telegram":
-            return self._reply(404)
-        if self.headers.get("X-Telegram-Bot-Api-Secret-Token") != config.SECRET:
-            return self._reply(403)
-        body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
-        self._reply(200, b"{}")
-        try:
-            update = json.loads(body)
-        except ValueError:
+def enqueue(update: dict) -> None:
+    """Принимает апдейт от Telegram. Повторы отбрасываем: Telegram мог прислать один и тот же дважды."""
+    uid = update.get("update_id")
+    if uid is not None:
+        if uid in _seen_set:
             return
-        threading.Thread(target=dispatch, args=(update,), daemon=True).start()
-
-    def log_message(self, *args) -> None:
-        pass
+        if len(_seen) == _seen.maxlen:
+            _seen_set.discard(_seen[0])
+        _seen.append(uid)
+        _seen_set.add(uid)
+    if "pre_checkout_query" in update:  # на него есть только 10 секунд — вне общей очереди
+        threading.Thread(target=premium.on_pre_checkout, args=(update["pre_checkout_query"], checker.site_down()),
+                         daemon=True).start()
+    else:
+        pool.submit(dispatch, update)
 
 
 COMMANDS = {
     "ru": [("menu", "🏠 Главное меню"), ("add", "➕ Добавить офис"), ("radar", "📡 Радар — где раньше"),
-           ("list", "📋 Мои подписки"), ("check", "🔄 Проверить сейчас"), ("ua", "🇺🇦 Для украинцев"),
-           ("lang", "🌐 Язык / Мова"), ("help", "❓ Как это работает"), ("privacy", "🔒 Мои данные")],
+           ("list", "📋 Мои офисы"), ("premium", "💎 Premium"), ("bonus", "🎁 Бонусы"), ("ua", "🇺🇦 Для украинцев"),
+           ("lang", "🌐 Язык / Мова"), ("help", "❓ Как это работает"), ("terms", "📄 Условия"),
+           ("paysupport", "💳 Поддержка по оплате"), ("privacy", "🔒 Мои данные")],
     "uk": [("menu", "🏠 Головне меню"), ("add", "➕ Додати офіс"), ("radar", "📡 Радар — де швидше"),
-           ("list", "📋 Мої підписки"), ("check", "🔄 Перевірити зараз"), ("ua", "🇺🇦 Для українців"),
-           ("lang", "🌐 Мова / Язык"), ("help", "❓ Як це працює"), ("privacy", "🔒 Мої дані")],
+           ("list", "📋 Мої офіси"), ("premium", "💎 Premium"), ("bonus", "🎁 Бонуси"), ("ua", "🇺🇦 Для українців"),
+           ("lang", "🌐 Мова / Язык"), ("help", "❓ Як це працює"), ("terms", "📄 Умови"),
+           ("paysupport", "💳 Підтримка щодо оплати"), ("privacy", "🔒 Мої дані")],
 }
 SHORT = {
     "ru": "🔔 Свободные citas DGT (Tráfico) — сразу напишу, когда в твоём офисе появятся даты. Все 68 офисов Испании.",
@@ -525,13 +718,13 @@ DESCRIPTION = {
            "✅ все 68 офисов DGT в Испании\n📡 радар: где записаться раньше всего\n"
            "🪪 права, транспорт, canje (обмен прав), экзамены, штрафы\n🗓 календарь со свободным временем\n"
            "⏰ напоминание о визите и что взять с собой\n🇺🇦 памятка для украинцев\n\n"
-           "Бесплатно. Нажми «Старт» 👇"),
+           "Базовый тариф бесплатный. Бот не связан с DGT. Нажми «Старт» 👇"),
     "uk": (f"🇪🇸 {config.BRAND} стежить за записом (cita previa) у DGT — Tráfico — і одразу надсилає сповіщення, "
            "щойно з’являються вільні дати.\n\n"
            "✅ усі 68 офісів DGT в Іспанії\n📡 радар: де записатися найшвидше\n"
            "🪪 права, транспорт, canje (обмін прав), іспити, штрафи\n🗓 календар із вільним часом\n"
            "⏰ нагадування про візит і що взяти з собою\n🇺🇦 пам’ятка для українців\n\n"
-           "Безкоштовно. Натисни «Почати» 👇"),
+           "Базовий тариф безкоштовний. Бот не пов’язаний з DGT. Натисни «Почати» 👇"),
 }
 
 
@@ -545,15 +738,23 @@ def setup_profile() -> None:
         lang = store.get_chat(owner).get("lang") or "ru"
         tg.call("setMyCommands", commands=[{"command": c, "description": d} for c, d in COMMANDS[lang]]
                 + [{"command": "admin", "description": "🛠 Админ-панель"}], scope={"type": "chat", "chat_id": owner})
+    photo = (config.ROOT / "assets/avatar.jpg").read_bytes()
+    digest = hashlib.sha256(photo).hexdigest()
+    if store.setting("avatar_sha") != digest and tg.set_profile_photo(photo):  # только при смене картинки
+        store.set_setting("avatar_sha", digest)
+    for c in store.all_chats():  # кнопка мини-приложения у тех, у кого есть Premium
+        if premium.is_premium(c["chat"]):
+            premium.apply_menu_button(c["chat"])
 
 
 def start_background() -> None:
-    threading.Thread(target=checker.loop, daemon=True).start()
-    threading.Thread(target=checker.reminders, daemon=True).start()
-    threading.Thread(target=checker.housekeeping, daemon=True).start()
+    threading.Thread(target=checker.loop, daemon=True, name="checks").start()
+    threading.Thread(target=checker.reminders, daemon=True, name="reminders").start()
+    threading.Thread(target=checker.housekeeping, daemon=True, name="housekeeping").start()
 
-    def on_stop(*_) -> None:  # Render останавливает сервис сигналом SIGTERM — сохраняем статистику
+    def on_stop(*_) -> None:  # Render останавливает сервис сигналом SIGTERM — сохраняем всё незаписанное
         store.flush_metrics()
+        store.flush(8)
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, on_stop)
@@ -563,9 +764,10 @@ def main() -> None:
     store.init()
     dgt.AREA_LABELS.update(store.area_labels())
     threading.Thread(target=checker.refresh_centros, daemon=True).start()
+    webapp.on_update = enqueue
 
     if config.PUBLIC_URL:
-        server = ThreadingHTTPServer(("0.0.0.0", config.PORT), Handler)
+        server = webapp.serve(config.PORT)
         if not config.TOKEN:
             log.error("TELEGRAM_TOKEN не задан — добавь его в Environment на Render. Жду…")
             server.serve_forever()
@@ -575,13 +777,12 @@ def main() -> None:
         if not me:
             log.error("Telegram не принял TELEGRAM_TOKEN")
             server.serve_forever()
-        setup_profile()
-        tg.call("setWebhook", url=config.PUBLIC_URL + "/telegram", secret_token=config.SECRET,
-                allowed_updates=["message", "callback_query"])
-        log.info("Бот @%s запущен (webhook %s), владельцы: %s", me["username"], config.PUBLIC_URL,
-                 sorted(config.OWNERS) or "не заданы")
+        tg.call("setWebhook", url=config.PUBLIC_URL + "/telegram", secret_token=config.SECRET, allowed_updates=ALLOWED_UPDATES)
+        threading.Thread(target=setup_profile, daemon=True).start()
+        log.info("Бот @%s запущен (webhook %s, версия %s), владельцы: %s", me["username"], config.PUBLIC_URL,
+                 config.VERSION, sorted(config.OWNERS) or "не заданы")
         start_background()
-        threading.Thread(target=checker.keepalive, daemon=True).start()
+        threading.Thread(target=checker.keepalive, daemon=True, name="keepalive").start()
         server.serve_forever()
         return
 
@@ -592,7 +793,7 @@ def main() -> None:
         raise SystemExit("Telegram не принял токен — проверь TELEGRAM_TOKEN в .env")
     hook = ((tg.call("getWebhookInfo") or {}).get("result") or {}).get("url")
     if hook and "--force" not in sys.argv:
-        raise SystemExit(f"Бот уже работает на сервере ({hook}). Локальный запуск отключит его.\n"
+        raise SystemExit("Бот уже работает на сервере. Локальный запуск отключит его.\n"
                          "Если это нужно — запусти: python3 bot.py --force")
     tg.call("deleteWebhook")
     setup_profile()
@@ -601,13 +802,13 @@ def main() -> None:
 
     offset = 0
     while True:
-        data = tg.call("getUpdates", offset=offset, timeout=50, allowed_updates=["message", "callback_query"])
+        data = tg.call("getUpdates", _timeout=70, offset=offset, timeout=50, allowed_updates=ALLOWED_UPDATES)
         if not data or not data.get("ok"):
             time.sleep(5)
             continue
         for upd in data["result"]:
             offset = upd["update_id"] + 1
-            threading.Thread(target=dispatch, args=(upd,), daemon=True).start()
+            enqueue(upd)
 
 
 if __name__ == "__main__":

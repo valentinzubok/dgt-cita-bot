@@ -23,13 +23,15 @@ def _load_env() -> None:
 _load_env()
 
 BRAND = "OkSita"
+BOT_USERNAME = os.environ.get("BOT_USERNAME", "oksitabot").lstrip("@")
 TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
 API = f"https://api.telegram.org/bot{TOKEN}/"
 SECRET = hashlib.sha256(("dgt-webhook:" + TOKEN).encode()).hexdigest()[:40]
+LINK_KEY = hashlib.sha256(("oksita-links:" + TOKEN).encode()).digest()  # подпись ссылок в рекламе
 PUBLIC_URL = (os.environ.get("WEBHOOK_URL") or os.environ.get("RENDER_EXTERNAL_URL") or "").rstrip("/")
 PORT = int(os.environ.get("PORT", "10000"))
+VERSION = os.environ.get("RENDER_GIT_COMMIT", "")[:7] or "dev"
 # Владельцы бота (chat id через запятую): полный доступ к админке, назначают админов
 OWNERS = {int(x) for x in os.environ.get("ADMIN_CHAT_ID", "").replace(" ", "").split(",") if x.lstrip("-").isdigit()}
-DEFAULT_INTERVAL = max(5, int(os.environ.get("CHECK_INTERVAL_MIN", "10")))
 MAX_OFFICES = int(os.environ.get("MAX_OFFICES", "30"))
 TZ = ZoneInfo("Europe/Madrid")

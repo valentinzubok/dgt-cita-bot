@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="es" xmlns="http://www.w3.org/1999/xhtml"><head id="j_id_3"><script type="text/javascript" src="/WEB_CITE_CONSULTA/ruxitagentjs_ICA7NVfgqrux_10345260810170330.js" data-dtconfig="app=57e4312f97bd4a0c|ssc=1|srtbv=4|owasp=1|featureHash=ICA7NVfgqrux|rdnt=0|uxrgce=1|cuc=80ne5ii7|mel=100000|dpvc=1|lastModification=1793410429674|tp=500,50,0|srbbv=3|agentUri=/WEB_CITE_CONSULTA/ruxitagentjs_ICA7NVfgqrux_10345260810170330.js|reportUrl=/WEB_CITE_CONSULTA/rb_70fa0f5f-e1d0-42f8-b0ef-997802b704c8|rid=RID_-623038059|rpid=-654298442"></script><link type="text/css" rel="stylesheet" href="/WEB_CITE_CONSULTA/javax.faces.resource/theme.css.faces?ln=primefaces-aristo" /><link rel="stylesheet" type="text/css" href="/WEB_CITE_CONSULTA/javax.faces.resource/components.css.faces?ln=primefaces&amp;v=6.1" /><script type="text/javascript" src="/WEB_CITE_CONSULTA/javax.faces.resource/jquery/jquery.js.faces?ln=primefaces&amp;v=6.1"></script><script type="text/javascript" src="/WEB_CITE_CONSULTA/javax.faces.resource/jquery/jquery-plugins.js.faces?ln=primefaces&amp;v=6.1"></script><script type="text/javascript" src="/WEB_CITE_CONSULTA/javax.faces.resource/core.js.faces?ln=primefaces&amp;v=6.1"></script><script type="text/javascript" src="/WEB_CITE_CONSULTA/javax.faces.resource/components.js.faces?ln=primefaces&amp;v=6.1"></script><script type="text/javascript" src="/WEB_CITE_CONSULTA/javax.faces.resource/jsf.js.faces?ln=javax.faces"></script><script type="text/javascript">if(window.PrimeFaces){PrimeFaces.settings.locale='es';}</script>
+		<title>CITE - SOLICITUD CITA</title>
+		<meta charset="utf-8" />
+		<meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+		<meta name="language" content="Spanish" />
+		<meta name="theme-color" content="rgb(243, 140, 0)" />
+		<meta name="msapplication-navbutton-color" content="rgb(243, 140, 0)" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="rgb(243, 140, 0)" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0" />
+		<link rel="stylesheet" href="/CITE/INTER/css/bootstrap-5.0.2-dist/css/bootstrap.min.css" />
+		<link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.12.1/css/dataTables.bootstrap5.min.css" />
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" integrity="sha512-z3gLpd7yknf1YoNbCzqRKc4qyor8gaKU1qmn+CShxbuBusANI9QpRohGBreCFkKxLhei6S9CQXFEbbKuqLg0DA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+		<link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/datetime/1.1.2/css/dataTables.dateTime.min.css" />
+		<link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/rowgroup/1.2.0/css/rowGroup.bootstrap5.min.css" />
+		<link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/bs-stepper/dist/css/bs-stepper.min.css" />
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.3/css/intlTelInput.min.css" />
+		<link rel="stylesheet" href="https://unpkg.com/js-year-calendar@2.0.0/dist/js-year-calendar.min.css" />
+		<link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.dataTables.min.css" />
+		<link rel="stylesheet" href="/CITE/INTER/css/styles.css" />
+		<link rel="stylesheet" type="text/css" href="/CITE/INTER/css/chardin/chardinjs.css" />
+		<script src="https://code.jquery.com/jquery-3.7.0.js"></script>
+		<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.inputmask/5.0.8/jquery.inputmask.min.js"></script></head><body class="js-disabled d-flex flex-column">
+		<script>
+			document.body.className = 'js-enabled d-flex flex-column';
+		</script>
+	<div class="container-fluid accesibility-area d-none d-sm-none d-md-block">
+		<div class="row px-1">
+			<div class="col p-1">
+				<a class="text-white me-2" href="#contenido" title="Salto a contenido" id="saltocontenido">Salto a contenido</a> <a class="text-white" href="#navegacion" title="Salto a navegación">Salto a navegación</a>
+			</div>
+			<div class="notranslate col text-end p-1 text-white">
+				<div class="date d-inline">
+					<span>sábado, 31 de octubre del 2026 16:04:48</span>
+				</div>
+				<span id="literalHora">Hora Oficial</span>
+			</div>
+		</div>
+	</div>
+		<header class="container-fluid px-4 pt-4">
+	<div class="row d-flex align-items-center pb-3">
+		<div class="col">
+			<div class="d-flex justify-content-start">
+				<a class="d-flex px-2" title="Acceso a la sede de la Dirección General de Tráfico en nueva ventana" href="http://www.dgt.es/" target="_blank"> <img class="logoCabecera d-none d-sm-none d-md-block d-lg-block" src="/CITE/INTER/images/DGT-logo.svg" alt="Logo sede electrónica DGT" />
+				<img class="logoCabecera d-block d-sm-block d-md-none d-lg-none img-fluid" src="/CITE/INTER/images/simboloDGT_curvas.svg" alt="Logo sede electrónica DGT" />
+				</a>
+			</div>
+		</div>
+		<div class="col">
+			<div class="notranslate mypage-caption d-flex justify-content-center text-center">
+				<h1>
+					<a id="logoSedeE" href="/WEB_CITE_CONSULTA/paginas/inicio.faces" title="Enlace a página de inicio de la Sede electrónica de la DGT - Cita Previa">
+						Sede Electrónica 
+						<span id="logoDGTM">
+							Cita Previa
+						</span>
+					</a>
+				</h1>
+			</div>
+		</div>
+		<div class="col">
+			<div class="d-flex justify-content-end align-items-center">
+				<div class="d-inline-flex px-2 d-none d-sm-none d-md-block">
+					<div id="google_translate_element" class="d-none"></div>
+					<div id="translationDetector" style="display: none;">ES</div>
+					<div class="dropdown">
+						<button class="notranslate btn btn-sm text-nowrap dropdown-toggle" type="button" id="dropdownMenuButtonIdioma" data-bs-toggle="dropdown" aria-expanded="false">
+							<i class="fas fa-globe-europe" aria-hidden="true"></i><span class="p-1" id="idiomaActual">Bienvenido</span>
+						</button>
+						<ul class="dropdown-menu flags_desp" aria-labelledby="dropdownMenuButtonIdioma">
+							<li><a class="notranslate botonIdioma dropdown-item btn-sm" href="#" onclick="translatePage('es')">Bienvenido</a></li>
+							<li><a class="notranslate botonIdioma dropdown-item btn-sm" href="#" onclick="translatePage('ca')">Benvinguts</a></li>
+							<li><a class="notranslate botonIdioma dropdown-item btn-sm" href="#" onclick="translatePage('de')">Willkommen</a></li>
+							<li><a class="notranslate botonIdioma dropdown-item btn-sm" href="#" onclick="translatePage('en')">Welcome</a></li>
+							<li><a class="notranslate botonIdioma dropdown-item btn-sm" href="#" onclick="translatePage('eu')">Ongi etorri</a></li>
+							<li><a class="notranslate botonIdioma dropdown-item btn-sm" href="#" onclick="translatePage('fr')">Bienvenue</a></li>
+							<li><a class="notranslate botonIdioma dropdown-item btn-sm" href="#" onclick="translatePage('gl')">Benvidos</a></li>
+						</ul>
+					</div>
+				</div>
+				
+				
+				<div id="textAlignCenter">
+	<style>
+.ui-dialog {
+	top: 50% !important;
+	left: 50% !important;
+	transform: translate(-50%, -50%) !important;
+	position: fixed !important;
+	max-width: 600px !important;
+	width: 90% !important;
+	border-radius: 0.5rem !important;
+	box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, .15) !important;
+	background-color: #fff !important;
+	overflow: hidden;
+	padding: 0 !important;
+}
+
+.ui-dialog-titlebar {
+	background-color: #f8f9fa !important;
+	color: #212529 !important;
+	border-bottom: 1px solid #dee2e6 !important;
+	font-weight: 600 !important;
+	font-size: 1.1rem !important;
+	padding: 1rem !important;
+}
+
+.ui-dialog-content {
+	padding: 1.5rem !important;
+	font-size: 1rem !important;
+	color: #495057 !important;
+	background-color: white !important;
+}
+
+.ui-dialog-content>.ui-icon {
+	display: none !important;
+}
+
+.ui-dialog-buttonpane {
+	justify-items: right;
+	text-align: right !important;
+}
+</style><script id="j_id_n_s" type="text/javascript">$(function(){PrimeFaces.cw("ConfirmDialog","confirmationClave",{id:"j_id_n"});});</script><div id="j_id_n" class="ui-confirm-dialog ui-dialog ui-widget ui-widget-content ui-corner-all ui-shadow ui-hidden-container"><div class="ui-dialog-titlebar ui-widget-header ui-helper-clearfix ui-corner-top"><span id="j_id_n_title" class="ui-dialog-title">Autenticación en Cl@ve</span></div><div class="ui-dialog-content ui-widget-content"><span class="ui-icon ui-icon-alert ui-confirm-dialog-severity"></span><span class="ui-confirm-dialog-message">Se te redirigirá a la pantalla de autenticación mediante la plaforma Cl@ve.</span></div><div class="ui-dialog-buttonpane ui-dialog-footer ui-widget-content ui-helper-clearfix">
+		<button type="button" onclick="window.location.href='/WEB_CITE_CONSULTA/paginas/login.faces'" oncomplete="PF('confirmationClave').hide();" class="btn btn-primary custom-btn btn-sm text-nowrap">Aceptar</button></div></div>
+				</div>
+			</div>
+		</div>
+	</div>
+		<nav class="pt-2" aria-label="breadcrumb">
+			<ol class="breadcrumb small bg-white">
+				<li class="breadcrumb-item"><a href="/WEB_CITE_CONSULTA/paginas/inicio.faces">
+						Cita Previa
+					</a>
+				</li>
+					<li class="breadcrumb-item"><span class="here">
+						Confirmación de cita
+					</span></li>
+			</ol>
+		</nav>
+		</header>
+		<main class="container-fluid px-md-4" style="flex:1">
+
+	<section class="section-header mb-3">
+		<div class="title-container">
+			<div class="section-titles">
+				<h2 class="title text-uppercase">SOLICITUD DE CITA PREVIA</h2>
+				<div class="d-flex pb-1">
+					<div>
+						<a href="#" id="toggleHelp" class="fa-stack help-link" title="Asistente navegación" data-intro="Asistente navegación" data-position="left"> <span class="fa-stack fa-md"> <i class="fas fa-circle fa-stack-2x icon-background-alt" aria-hidden="true"></i> <i class="fas fa-magic fa-stack-1x fa-inverse" aria-hidden="true" title="Asistente navegación"></i> <span class="sr-only">???asistente.label???</span>
+						</span>
+						</a>
+					</div>
+					<div>
+						<a class="fa-stack print-link" title="Imprimir" href="javascript:window.print()" target="_self" data-intro="Al pulsar este botón sale cuadro de impresión de página" data-position="top"> <span class="fa-stack fa-md"> <i class="fas fa-circle fa-stack-2x icon-background-alt" aria-hidden="true"></i> <i class="fas fa-print fa-stack-1x fa-inverse" aria-hidden="true" title="Imprimir"></i> <span class="sr-only">Imprimir página</span>
+						</span>
+						</a>
+					</div>
+					<div id="redes_sociales_compartir">
+						<a class="fa-stack shared-link" title="Compartir" href="#" target="_self" data-intro="Aquí puedes compartir la página en redes sociales" data-position="bottom" id="dropdownMenuButton" data-bs-toggle="dropdown"> <span class="fa-stack fa-md"> <i class="fas fa-circle fa-stack-2x icon-background-alt" aria-hidden="true"></i> <i class="fas fa-share-alt fa-stack-1x fa-inverse" aria-hidden="true" title="Compartir"></i> <span class="sr-only">Compartir</span>
+						</span>
+						</a>
+						<ul class="dropdown-menu redes_desp" aria-labelledby="dropdownMenuButton">
+							<li><a target="_blank" class="dropdown-item social" href="http://www.facebook.com/sharer.php?u=10.50.108.9690/es/#"> <i class="fab fa-facebook-f m-2 icon-Facebook" title="Facebook"></i>Facebook
+							</a></li>
+							<li><a target="_blank" class="dropdown-item social" href="https://twitter.com/intent/tweet?uri=10.50.108.9690/es/#"> <i class="fa-brands fa-x-twitter  m-2 icon-Twitter" title="X"></i>X
+							</a></li>
+							<li><a target="_blank" class="dropdown-item social" href="https://www.linkedin.com/sharing/share-offsite/?url=10.50.108.9690/es/#"> <i class="fab fa-linkedin-in m-2 icon-LinkedIn" title="LinkedIn"></i>LinkedIn
+							</a></li>
+							<li><a target="_blank" class="dropdown-item social" href="whatsapp://send?text=10.50.108.9690/es/#"> <i class="fab fa-whatsapp m-2 icon-Whatsapp" title="Whatsapp"></i>Whatsapp
+							</a></li>
+						</ul>
+					</div>
+				</div>
+			</div>
+		</div>
+	</section>
+		<section>
+			<div id="textAlignCenter">
+	<style>
+.ui-dialog {
+	top: 50% !important;
+	left: 50% !important;
+	transform: translate(-50%, -50%) !important;
+	position: fixed !important;
+	max-width: 600px !important;
+	width: 90% !important;
+	border-radius: 0.5rem !important;
+	box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, .15) !important;
+	background-color: #fff !important;
+	overflow: hidden;
+	padding: 0 !important;
+}
+
+.ui-dialog-titlebar {
+	background-color: #f8f9fa !important;
+	color: #212529 !important;
+	border-bottom: 1px solid #dee2e6 !important;
+	font-weight: 600 !important;
+	font-size: 1.1rem !important;
+	padding: 1rem !important;
+}
+
+.ui-dialog-content {
+	padding: 1.5rem !important;
+	font-size: 1rem !important;
+	color: #495057 !important;
+	background-color: white !important;
+}
+
+.ui-dialog-content>.ui-icon {
+	display: none !important;
+}
+
+.ui-dialog-buttonpane {
+	justify-items: right;
+	text-align: right !important;
+}
+</style><script id="j_id_19_s" type="text/javascript">$(function(){PrimeFaces.cw("ConfirmDialog","confirmationClave",{id:"j_id_19"});});</script><div id="j_id_19" class="ui-confirm-dialog ui-dialog ui-widget ui-widget-content ui-corner-all ui-shadow ui-hidden-container"><div class="ui-dialog-titlebar ui-widget-header ui-helper-clearfix ui-corner-top"><span id="j_id_19_title" class="ui-dialog-title">Autenticación en Cl@ve</span></div><div class="ui-dialog-content ui-widget-content"><span class="ui-icon ui-icon-alert ui-confirm-dialog-severity"></span><span class="ui-confirm-dialog-message">Se te redirigirá a la pantalla de autenticación mediante la plaforma Cl@ve.</span></div><div class="ui-dialog-buttonpane ui-dialog-footer ui-widget-content ui-helper-clearfix">
+		<button type="button" onclick="window.location.href='/WEB_CITE_CONSULTA/paginas/login.faces'" oncomplete="PF('confirmationClave').hide();" class="btn btn-primary custom-btn btn-sm text-nowrap">Aceptar</button></div></div>
+	<style>
+.ui-dialog {
+	top: 50% !important;
+	left: 50% !important;
+	transform: translate(-50%, -50%) !important;
+	position: fixed !important;
+	max-width: 600px !important;
+	width: 90% !important;
+	border-radius: 0.5rem !important;
+	box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, .15) !important;
+	background-color: #fff !important;
+	overflow: hidden;
+	padding: 0 !important;
+}
+
+.ui-dialog-titlebar {
+	background-color: #f8f9fa !important;
+	color: #212529 !important;
+	border-bottom: 1px solid #dee2e6 !important;
+	font-weight: 600 !important;
+	font-size: 1.1rem !important;
+	padding: 1rem !important;
+}
+
+.ui-dialog-content {
+	padding: 1.5rem !important;
+	font-size: 1rem !important;
+	color: #495057 !important;
+	background-color: white !important;
+}
+
+.ui-dialog-content>.ui-icon {
+	display: none !important;
+}
+
+.ui-dialog-buttonpane {
+	justify-items: right;
+	text-align: right !important;
+}
+</style><script id="j_id_1d_s" type="text/javascript">$(function(){PrimeFaces.cw("ConfirmDialog","sinCapacidad",{id:"j_id_1d"});});</script><div id="j_id_1d" class="ui-confirm-dialog ui-dialog ui-widget ui-widget-content ui-corner-all ui-shadow ui-hidden-container"><div class="ui-dialog-titlebar ui-widget-header ui-helper-clearfix ui-corner-top"><span id="j_id_1d_title" class="ui-dialog-title">Calendario de días disponibles para cita previa</span><a href="#" class="ui-dialog-titlebar-icon ui-dialog-titlebar-close ui-corner-all" aria-label="Close"><span class="ui-icon ui-icon-closethick"></span></a></div><div class="ui-dialog-content ui-widget-content"><span class="ui-icon ui-icon-alert ui-confirm-dialog-severity"></span><span class="ui-confirm-dialog-message">Esta jefatura se encuentra actualmente sin capacidad de citación. Selecciona otra oficina.</span></div><div class="ui-dialog-buttonpane ui-dialog-footer ui-widget-content ui-helper-clearfix">
+		<button type="button" onclick="PF('sinCapacidad').hide();" class="btn btn-primary custom-btn btn-sm text-nowrap">Aceptar</button></div></div>
+	<style>
+.ui-dialog {
+	top: 50% !important;
+	left: 50% !important;
+	transform: translate(-50%, -50%) !important;
+	position: fixed !important;
+	max-width: 600px !important;
+	width: 90% !important;
+	border-radius: 0.5rem !important;
+	box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, .15) !important;
+	background-color: #fff !important;
+	overflow: hidden;
+	padding: 0 !important;
+}
+
+.ui-dialog-titlebar {
+	background-color: #f8f9fa !important;
+	color: #212529 !important;
+	border-bottom: 1px solid #dee2e6 !important;
+	font-weight: 600 !important;
+	font-size: 1.1rem !important;
+	padding: 1rem !important;
+}
+
+.ui-dialog-content {
+	padding: 1.5rem !important;
+	font-size: 1rem !important;
+	color: #495057 !important;
+	background-color: white !important;
+}
+
+.ui-dialog-content>.ui-icon {
+	display: none !important;
+}
+
+.ui-dialog-buttonpane {
+	justify-items: right;
+	text-align: right !important;
+}
+</style><script id="j_id_1h_s" type="text/javascript">$(function(){PrimeFaces.cw("ConfirmDialog","noConfigurado",{id:"j_id_1h"});});</script><div id="j_id_1h" class="ui-confirm-dialog ui-dialog ui-widget ui-widget-content ui-corner-all ui-shadow ui-hidden-container"><div class="ui-dialog-titlebar ui-widget-header ui-helper-clearfix ui-corner-top"><span id="j_id_1h_title" class="ui-dialog-title">Calendario de días disponibles para cita previa</span><a href="#" class="ui-dialog-titlebar-icon ui-dialog-titlebar-close ui-corner-all" aria-label="Close"><span class="ui-icon ui-icon-closethick"></span></a></div><div class="ui-dialog-content ui-widget-content"><span class="ui-icon ui-icon-alert ui-confirm-dialog-severity"></span><span class="ui-confirm-dialog-message">Esta jefatura no está configurada actualmente para los trámites seleccionados. Selecciona otra oficina.</span></div><div class="ui-dialog-buttonpane ui-dialog-footer ui-widget-content ui-helper-clearfix">
+		<button type="button" onclick="PF('noConfigurado').hide();" class="btn btn-primary custom-btn btn-sm text-nowrap">Aceptar</button></div></div>
+			</div><form id="formcita" name="formcita" method="post" action="/WEB_CITE_CONSULTA/paginas/cita.faces" enctype="application/x-www-form-urlencoded"><input type="hidden" id="formcita:codIdioma" name="formcita:codIdioma" value="" /><input type="hidden" id="formcita:jsonjefaturas" name="formcita:jsonjefaturas" value="" /><input type="hidden" id="formcita:jsonjefaturaSeleccionada" name="formcita:jsonjefaturaSeleccionada" value="" /><section id="formcita:mensajes"></section><section id="formcita:seccionCentro"><div class="box bordered-box overlapped-title-box">
+						<fieldset class=" p-4 borde_gris" data-intro="Selecciona fecha y hora para tu cita">
+							<legend class="title">
+								Selecciona fecha y hora para tu cita </legend>
+	<div class="row mb-4">
+		<div data-intro="Detalle del centro seleccionado" class="col-12 ">
+			<div class="row mt-3"><div class="col-12">
+					<div class="row icon-title align-items-center mx-1 mb-3">
+						<span class="col-3 fa-stack fa-md"> <i class="fas fa-circle fa-stack-2x icon-background"></i> <i class="fas fa-info fa-stack-1x fa-inverse"></i>
+						</span>
+						<h4 class="col subtitle px-1">Jefatura Provincial de Tráfico de Soria</h4>
+					</div>
+					<ul class="fa-ul ps-3">
+							<li class="py-1"><span class="fa-li"><i class="fas fa-map-marker-alt"></i></span> <strong>Dirección:</strong>
+								<p>RONDA
+									Ronda Eloy Sanz Villa 2,
+									4002,
+									SORIA</p>
+							</li>
+						<li class="py-1"><span class="fa-li"><i class="fas fa-calendar-alt"></i></span> <strong>Horario:</strong>
+							<p>De lunes a viernes, de 9:00 a 14:00 horas.
+							</p></li>
+					</ul></div>
+			</div>
+		</div>
+		<div data-intro="Lista de tramites seleccionados" class="col-12 bg-light rounded shadow-sm p-3">
+			<div class="row icon-title align-items-center mx-1 mb-3">
+				<span class="col-3 fa-stack fa-md"> <i class="fas fa-circle fa-stack-2x icon-background"></i> <i class="fas fa-file-alt fa-stack-1x fa-inverse"></i>
+				</span>
+				<h4 class="col subtitle px-1">Cita seleccionada</h4>
+			</div>
+			<ul class="fa-ul my-2 px-1">
+					<li class="py-1"><span class="fa-li"><i class="fas fa-cog text-success fa-lg" aria-hidden="true"></i></span><span class="fw-bold">Conductores</span></li>
+					<p><ul><li>Trámites de conductores</li></ul><p><br></p><p><br></p><p>Recuerda que puedes realizar múltiples trámites online a través de nuestra sede electrónica o telefónicamente sin necesidad de pedir cita y desplazarte a nuestras oficinas. Para más información,&nbsp;consulta nuestro catálogo de servicios (https://sede.dgt.gob.es/es/contenidos/catalogo-servicios.shtml) en la sede electrónica de Tráfico.</p>
+					</p>
+			</ul>
+		</div>
+	</div>
+	<style>
+.cite-calendario {
+	width: 100%;
+}
+
+.cite-calendario .cite-calendario-cabecera, .cite-calendario .cite-calendario-semana
+	{
+	align-items: center;
+	display: flex;
+	padding: 0.2rem;
+	font-size: 17px;
+}
+
+.cite-calendario .cite-calendario-cabecera  div {
+	width: 100%;
+	text-align: center;
+	font-weight: bold;
+}
+
+.cite-calendario .cite-calendario-dias {
+	display: flex;
+	flex-wrap: wrap;
+}
+
+.cite-calendario .cite-calendario-dias div, .cite-calendario .cite-calendario-semana span
+	{
+	height: 50px;
+	width: 50px;
+	font-size: 15px;
+	padding: 0 0.5em 0 0.5em;
+	flex: 0 0 14.28%;
+	max-width: 14.28%;
+	text-align: center;
+}
+
+.cite-calendario .cite-calendario-dias div hoy {
+	background-color: lightblue;
+}
+
+.cite-calendario .cite-calendario-cabecera input[type="submit"],
+	.cite-calendario .cite-calendario-dias input[type="submit"] {
+	border: none;
+	background-color: white;
+}
+
+.cite-calendario .cite-calendario-dias div>span {
+	display: block;
+	min-height: 8px;
+	width: 100%;
+}
+
+.cite-calendario .cite-calendario-dias div>.bajaOcupacion {
+	background-color: green;
+	min-height: 4px;
+	margin-top: 2px;
+}
+
+.cite-calendario .cite-calendario-dias div>.mediaOcupacion {
+	background-color: yellow;
+	min-height: 6px;
+	margin-top: 1px;
+}
+
+.cite-calendario .cite-calendario-dias div>.altaOcupacion {
+	background-color: red;
+	min-height: 8px;
+}
+
+.cite-calendario .cite-calendario-dias div>.hoy {
+	background-color: grey;
+	min-height: 4px;
+	margin-top: 2px;
+}
+
+.seleccionada {
+	background-color: black;
+	min-height: 1px !important;
+	margin-top: 1px;
+}
+
+.solicitada {
+	background-color: green;
+	min-height: 2px !important;
+	margin-top: 2px;
+}
+
+.anulada {
+	background-color: red;
+	min-height: 2px !important;
+	margin-top: 2px;
+}
+
+.caduda {
+	background-color: gray;
+	min-height: 2px !important;
+	margin-top: 2px;
+}
+
+.leyenda {
+	display: flex;
+}
+
+.leyenda .item {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 12px
+}
+
+.cite-horas {
+	width: 100%;
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	padding: 0.2rem;
+}
+
+.cite-horas div {
+	flex: 0 0 25%;
+	max-width: 25%;
+	text-align: center;
+	margin-bottom: 0.5rem;
+}
+
+.cite-horas div input[type='submit'] {
+	width: 80px;
+	height: 45px;
+	color: white;
+	background-color: #6bca6c;
+	font-weight: bold;
+	border: none;
+}
+</style><div>
+		<div class="row icon-title align-items-center mx-1 mb-3">
+			<span class="col-3 fa-stack fa-md"> <i class="fas fa-circle fa-stack-2x icon-background"></i> <i class="fas fa-calendar-days fa-stack-1x fa-inverse"></i>
+			</span>
+			<h4 class="col subtitle px-1">Horario</h4>
+		</div>
+		<div class="row"><div id="formcita:calendarioJefatura" class="col-12 col-md-6 mb-4">
+				<div data-intro="Calendario de días disponibles para cita previa" class="cite-calendario">
+					<div class="cite-calendario-cabecera"><input id="formcita:j_id_3i" name="formcita:j_id_3i" type="submit" value="«" onclick="jsf.util.chain(document.getElementById('formcita:j_id_3i'), event,'jsf.ajax.request(\'formcita:j_id_3i\',event,{execute:\'@form \',render:\'formcita:calendarioJefatura formcita:horasJefatura \',onevent:ajaxOnEventLoading,\'javax.faces.behavior.event\':\'action\'})'); return false;" />
+						<div>noviembre
+							2026</div><input id="formcita:j_id_3k" name="formcita:j_id_3k" type="submit" value="»" onclick="jsf.util.chain(document.getElementById('formcita:j_id_3k'), event,'jsf.ajax.request(\'formcita:j_id_3k\',event,{execute:\'@form \',render:\'formcita:calendarioJefatura formcita:horasJefatura \',onevent:ajaxOnEventLoading,\'javax.faces.behavior.event\':\'action\'})'); return false;" />
+					</div>
+					<div class="cite-calendario-semana">
+						<span>lun.</span> <span>mar.</span>
+						<span>mie.</span> <span>jue.</span>
+						<span>vie.</span> <span>sab.</span>
+						<span>dom.</span>
+					</div>
+					<div class="notranslate cite-calendario-dias">
+							<div class="diaInter"><span></span>
+							</div>
+							<div class="diaInter"><span></span>
+							</div>
+							<div class="diaInter"><span></span>
+							</div>
+							<div class="diaInter"><span></span>
+							</div>
+							<div class="diaInter"><span></span>
+							</div>
+							<div class="diaInter"><span></span>
+							</div>
+							<div class="diaInter">01<span></span>
+							</div>
+							<div class="diaInter">02<span></span>
+							</div>
+							<div class="diaInter">03<span></span>
+							</div>
+							<div class="diaInter">04<span></span>
+							</div>
+							<div class="diaInter">05<span></span>
+							</div>
+							<div class="diaInter">06<span></span>
+							</div>
+							<div class="diaInter">07<span></span>
+							</div>
+							<div class="diaInter">08<span></span>
+							</div>
+							<div class="diaInter">09<span></span>
+							</div>
+							<div class="diaInter">10<span></span>
+							</div>
+							<div class="diaInter">11<span></span>
+							</div>
+							<div class="diaInter">12<span></span>
+							</div>
+							<div class="diaInter"><input id="formcita:j_id_3m:18:j_id_3o" name="formcita:j_id_3m:18:j_id_3o" type="submit" value="13" onclick="jsf.util.chain(document.getElementById('formcita:j_id_3m:18:j_id_3o'), event,'jsf.ajax.request(\'formcita:j_id_3m:18:j_id_3o\',event,{execute:\'@form \',render:\'formcita:calendarioJefatura formcita:horasJefatura \',onevent:ajaxOnEventLoading,\'javax.faces.behavior.event\':\'action\'})'); return false;" /><span class="altaOcupacion"></span>
+							</div>
+							<div class="diaInter">14<span></span>
+							</div>
+							<div class="diaInter">15<span></span>
+							</div>
+							<div class="diaInter"><input id="formcita:j_id_3m:21:j_id_3o" name="formcita:j_id_3m:21:j_id_3o" type="submit" value="16" onclick="jsf.util.chain(document.getElementById('formcita:j_id_3m:21:j_id_3o'), event,'jsf.ajax.request(\'formcita:j_id_3m:21:j_id_3o\',event,{execute:\'@form \',render:\'formcita:calendarioJefatura formcita:horasJefatura \',onevent:ajaxOnEventLoading,\'javax.faces.behavior.event\':\'action\'})'); return false;" /><span class="altaOcupacion"></span>
+							</div>
+							<div class="diaInter"><input id="formcita:j_id_3m:22:j_id_3o" name="formcita:j_id_3m:22:j_id_3o" type="submit" value="17" onclick="jsf.util.chain(document.getElementById('formcita:j_id_3m:22:j_id_3o'), event,'jsf.ajax.request(\'formcita:j_id_3m:22:j_id_3o\',event,{execute:\'@form \',render:\'formcita:calendarioJefatura formcita:horasJefatura \',onevent:ajaxOnEventLoading,\'javax.faces.behavior.event\':\'action\'})'); return false;" /><span class="mediaOcupacion"></span>
+							</div>
+							<div class="diaInter"><input id="formcita:j_id_3m:23:j_id_3o" name="formcita:j_id_3m:23:j_id_3o" type="submit" value="18" onclick="jsf.util.chain(document.getElementById('formcita:j_id_3m:23:j_id_3o'), event,'jsf.ajax.request(\'formcita:j_id_3m:23:j_id_3o\',event,{execute:\'@form \',render:\'formcita:calendarioJefatura formcita:horasJefatura \',onevent:ajaxOnEventLoading,\'javax.faces.behavior.event\':\'action\'})'); return false;" /><span class="mediaOcupacion"></span>
+							</div>
+							<div class="diaInter"><input id="formcita:j_id_3m:24:j_id_3o" name="formcita:j_id_3m:24:j_id_3o" type="submit" value="19" onclick="jsf.util.chain(document.getElementById('formcita:j_id_3m:24:j_id_3o'), event,'jsf.ajax.request(\'formcita:j_id_3m:24:j_id_3o\',event,{execute:\'@form \',render:\'formcita:calendarioJefatura formcita:horasJefatura \',onevent:ajaxOnEventLoading,\'javax.faces.behavior.event\':\'action\'})'); return false;" /><span class="bajaOcupacion"></span>
+							</div>
+							<div class="diaInter"><input id="formcita:j_id_3m:25:j_id_3o" name="formcita:j_id_3m:25:j_id_3o" type="submit" value="20" onclick="jsf.util.chain(document.getElementById('formcita:j_id_3m:25:j_id_3o'), event,'jsf.ajax.request(\'formcita:j_id_3m:25:j_id_3o\',event,{execute:\'@form \',render:\'formcita:calendarioJefatura formcita:horasJefatura \',onevent:ajaxOnEventLoading,\'javax.faces.behavior.event\':\'action\'})'); return false;" /><span class="mediaOcupacion"></span>
+							</div>
+							<div class="diaInter">21<span></span>
+							</div>
+							<div class="diaInter">22<span></span>
+							</div>
+							<div class="diaInter">23<span></span>
+							</div>
+							<div class="diaInter">24<span></span>
+							</div>
+							<div class="diaInter">25<span></span>
+							</div>
+							<div class="diaInter">26<span></span>
+							</div>
+							<div class="diaInter">27<span></span>
+							</div>
+							<div class="diaInter">28<span></span>
+							</div>
+							<div class="diaInter">29<span></span>
+							</div>
+							<div class="diaInter">30<span></span>
+							</div>
+					</div>
+				</div>
+				<div id="leyendaCalendario">
+						<div class="row mb-1">
+							<strong>Ocupación:</strong>
+						</div>
+						<div class="row leyenda">
+							<div class="item col-4">
+								<div class="rounded-circle bg-success" style="width: 16px; height: 16px; margin: 5px"></div>
+								<div>Menos del 33%</div>
+							</div>
+							<div class="item col-4">
+								<div class="rounded-circle bg-warning" style="width: 16px; height: 16px; margin: 5px"></div>
+								<div>Entre el 33% y 66%</div>
+							</div>
+							<div class="item col-4">
+								<div class="rounded-circle bg-danger" style="width: 16px; height: 16px; margin: 5px"></div>
+								<div>Más del 66%</div>
+							</div>
+						</div>
+				</div></div><div id="formcita:horasJefatura" class="col-12 col-md-6 horasJefatura"></div>
+		</div></div>
+						</fieldset></div></section>
+				<div class="text-end my-4"><button id="formcita:j_id_4c" name="formcita:j_id_4c" type="submit" data-intro="Cancelar la solicitud de cita" title="Cancelar la solicitud de cita" class="btn btn-primary custom-btn btn-sm text-nowrap">Cancelar cita</button>
+				</div><input type="hidden" name="formcita_SUBMIT" value="1" /><input type="hidden" name="javax.faces.ViewState" id="j_id__v_0:javax.faces.ViewState:1" value="HITv8BKPX3BDRTPwRQpBG2TRvJsLD1eSnQXG+nNv1FpRVPnveqWm2Z87FOzYP2Q249UDAA==" autocomplete="off" /></form>
+		</section>
+	<div id="loadingModal" class="modal" tabindex="-1" role="dialog" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+		<div class="modal-dialog modal-dialog-centered modal-lg" role="document">
+			<div class="modal-content">
+				<div class="modal-header">
+					<h3 class="h3" id="modal">Realizando tarea</h3>
+				</div>
+				<div class="modal-body text-center py-4">
+					<div class="spinner-border text-primary mb-3" role="status" style="width:3rem;height:3rem;">
+						<span class="visually-hidden">Realizando tarea</span>
+					</div>
+					<p class="cargando mb-0">Esta operación puede tardar. Espera unos instantes, por favor.</p>
+				</div>
+			</div>
+		</div>
+	</div>
+		</main>
+	<footer class="container-fluid footer footer-margen">
+		<div id="banner_bottom" class="row footer-logos p-3 text-center">
+			<div class="col p-2">
+				<a target="_blank" href="https://www.boe.es/" title="BOE"> <img src="/CITE/INTER/images/banner_pie_1.jpg" width="128" height="80" alt="BOE" class="border" /></a>
+			</div>
+			<div class="col p-2">
+				<a target="_blank" href="https://www.aepd.es/" title="aepd"> <img src="/CITE/INTER/images/banner_pie_2.jpg" width="128" height="80" alt="aepd" class="border" /></a>
+			</div>
+			<div class="col p-2">
+				<a target="_blank" href="https://administracion.gob.es/" title="http://administracion.gob.es/"> <img src="/CITE/INTER/images/banner_pie_3.jpg" width="128" height="80" alt="http://administracion.gob.es/" class="border" /></a>
+			</div>
+			<div class="col p-2">
+				<a target="_blank" href="https://carpetaciudadana.gob.es/carpeta/clave.htm" title="Ir a la Carpeta Ciudadana"> <img src="/CITE/INTER/images/banner_pie_carpeta_ciudadana.jpg" width="128" height="80" alt="Carpeta Ciudadana" class="border" /></a>
+			</div>
+			<div class="col p-2">
+				<a target="_blank" href="https://clave.gob.es/clave_Home/clave.html" title="http://clave.gob.es/"> <img src="/CITE/INTER/images/banner_pie_5.jpg" width="128" height="80" alt="clave.gob.es" class="border" /></a>
+			</div>
+			<div class="col p-2">
+				<a target="_blank" href="http://transparencia.gob.es/" title="http://transparencia.gob.es/"> <img src="/CITE/INTER/images/banner_pie_6.jpg" width="128" height="80" alt="transparencia.gob.es" class="border" /></a>
+			</div>
+		</div>
+		<div id="enlace_horizontal_pie">
+			<div class="row footer-links text-center pt-2">
+				<h2 class="d-none">Enlaces pie horizontal</h2>
+				<ul class="list-inline">
+					<li class="list-inline-item"><a class="me-2" href="https://sede-pro.dgt.gob.es/es/contenido/catalogo-de-servicios/" title="Catálogo de servicios">Catálogo de servicios</a></li>
+					<li class="list-inline-item"><a class="me-2" href="https://sede-pro.dgt.gob.es/es/contenido/calendario-de-dias-inhabiles/" title="Calendario días inhábiles">Calendario días inhábiles</a></li>
+					<li class="list-inline-item"><a class="me-2" href="https://sede-pro.dgt.gob.es/es/contenido/aviso-legal/" title="Aviso legal">Aviso legal</a></li>
+					<li class="list-inline-item"><a class="me-2" href="https://sede-pro.dgt.gob.es/es/contenido/politica-de-cookies/" title="Política de cookies">Política de cookies</a></li>
+					<li class="list-inline-item"><a class="me-2" href="https://sede-pro.dgt.gob.es/es/contenido/derechos-sobre-la-propiedad-intelectual/" title="Propiedad intelectual ">Propiedad intelectual </a></li>
+					<li class="list-inline-item"><a class="me-2" href="https://sede-pro.dgt.gob.es/es/contenido/proteccion-de-datos/" title="Política de privacidad">Política de privacidad</a></li>
+					<li class="list-inline-item"><a class="me-2" href="https://sede-pro.dgt.gob.es/es/contenido/guia-de-navegacion/" title="Guía de navegación">Guía de navegación</a></li>
+					<li class="list-inline-item"><a class="me-2" href="https://sede-pro.dgt.gob.es/es/contenido/accesibilidad/" title="Accesibilidad">Accesibilidad</a></li>
+					<li class="list-inline-item"><a class="me-2" href="https://sede-pro.dgt.gob.es/es/contenido/mapa-web/" title="Mapa web">Mapa web</a></li>
+				</ul>
+			</div>
+		</div>
+		<div id="redes_sociales" class="row footer-social text-center py-1">
+			<ul class="list-inline">
+				<li class="list-inline-item"><a href="https://www.facebook.com/DGTes" target="_blank" title="Abrir en nueva ventana. Facebook"> <i aria-hidden="true" class="fab fa-facebook-square fa-2x"><span class="d-none">Facebook</span></i>
+				</a></li>
+				<li class="list-inline-item"><a href="https://twitter.com/DGTes" target="_blank" title="Abrir en nueva ventana. X"> <i aria-hidden="true" class="fa-brands fa-square-x-twitter fa-2x"><span class="d-none">X</span></i>
+				</a></li>
+				<li class="list-inline-item"><a href="https://www.youtube.com/user/publicidaddgt" target="_blank" title="Abrir en nueva ventana. Youtube"> <i aria-hidden="true" class="fab fa-youtube-square fa-2x"><span class="d-none">Youtube</span></i>
+				</a></li>
+				<li class="list-inline-item"><a href="https://www.instagram.com/dgtes/" target="_blank" title="Abrir en nueva ventana. Instagram"> <i aria-hidden="true" class="fab fa-instagram-square fa-2x"><span class="d-none">Instagram</span></i>
+				</a></li>
+			</ul>
+		</div>
+		<div class="row mx-2 footer-container-menu">
+			<div id="enlaces_pie1" class="col-xs-12 col-md  footer-menupie">
+				<div>
+					<h3>Enlaces relacionados</h3>
+					<ul class="ps-3">
+						<li><a target="_blank" href="https://www.dgt.es/inicio/" title="DGT ">DGT </a></li>
+						<li><a target="_blank" href="https://revista.dgt.es/es/" title="Revista">Revista</a></li>
+						<li><a target="_blank" href="https://infocar.dgt.es/etraffic/" title="Información del tráfico ">Información del tráfico </a></li>
+						<li><a target="_blank" href="https://infocar.dgt.es/etraffic/" title="Radares">Radares</a></li>
+					</ul>
+				</div>
+			</div>
+			<div id="enlaces_pie3" class="col-xs-12 col-md footer-menupie">
+				<div>
+					<h3>Sobre la Sede</h3>
+					<ul class="ps-3">
+						<li><a href="https://sede-pro.dgt.gob.es/es/contenido/aviso-legal/" title="Leyes">Leyes</a></li>
+						<li><a href="https://sede-pro.dgt.gob.es/es/contenido/aviso-legal/" title="Normativa">Normativa</a></li>
+					</ul>
+				</div>
+			</div>
+			<div class="col me-4 text-center text-md-end">
+				<div class="row">
+					<div class="align-self-top">
+						<p>
+							<a href="https://sede-pro.dgt.gob.es/es/contenido/contactar/" title="Acceder a Contacta con la sede electrónica">Contacta con la sede electrónica</a>
+						</p>
+						<p>
+							<a target="_blank" href="https://sede.mir.gob.es/nfrontal/solicitud_informacion.html" title="Acceder a ¿Tiene alguna sugerencia?">¿Tienes alguna sugerencia?</a>
+						</p>
+					</div>
+					<div>
+						<img alt="Logo Ministerio del Interior" title="Logo Ministerio del Interior" src="/CITE/INTER/images/logo_1.png" />
+						<p class="text-nowrap my-2">Copyright © DGT 2023. Todos los
+							derechos reservados.</p>
+						<p class="text-nowrap my-2">Versión 1.0 Nombre aplicación</p>
+					</div>
+				</div>
+				<div class="row text-center">
+					<div class="col-3">
+						<a target="_blank" href="https://www.w3.org/WAI/WCAG2AA-Conformance.html"> <img src="/CITE/INTER/images/wcag2.1AA.png_1624035774.png" width="55" height="19" alt="normas WAI-AA 2.1" /></a>
+					</div>
+					<div class="col-3">
+						<a target="_blank" href="http://https://validator.w3.org/nu/?doc=http://sede.dgt.es"> <img src="/CITE/INTER/images/valid-html5.png_1624035774.png" width="55" height="19" alt="normas HTML5 de W3C" /></a>
+					</div>
+					<div class="col-3">
+						<a target="_blank" href="http://jigsaw.w3.org/css-validator/validator?uri=http://sede.dgt.es"> <img src="/CITE/INTER/images/valid-css3.png_1272419544.png" width="55" height="20" alt="nnormas CSS3 de W3C" /></a>
+					</div>
+					<div class="col-3">
+						<a target="_blank" href="http://creativecommons.org/licenses/by/3.0/es/"> <img src="/CITE/INTER/images/cc.png_1624035774.png" width="55" height="19" alt="licencia 'Creative Commons' 3.0" /></a>
+					</div>
+				</div>
+				
+			</div>
+		</div>
+		<div class="row footer-info text-center mt-2">
+			<ul class="list-inline m-1">
+				<li class="list-inline-item"><i class="fas fa-phone-alt" aria-hidden="true"></i> <span>011 Estado del Tráfico</span></li>
+				<li class="list-inline-item"><i class="fas fa-phone-alt" aria-hidden="true"></i> <span>060 Admin. Gral. del Estado</span></li>
+				<li class="list-inline-item"><i class="fas fa-map-marker-alt" aria-hidden="true"></i> <span><a class="footer-maps" href="https://www.google.es/maps/place/DGT/@40.4485179,-3.6447831,17z/data=!4m13!1m7!3m6!1s0xd422f23cabe9661:0x81c5a127c2ae4e95!2sCalle+de+Josefa+Valc%C3%A1rcel,+28,+28027+Madrid!3b1!8m2!3d40.4491629!4d-3.6446758!3m4!1s0xd422f18f9816f9d:0x45544d1297c54f11!8m2!3d40.4482514!4d-3.6400473" title="Abrir dirección en Google Maps" target="_blank">C/ Josefa Valcarcel, 28 - 28027 Madrid-España</a></span></li>
+			</ul>
+		</div>
+	</footer>
+	<script>
+		function googleTranslateElementInit() {
+			new google.translate.TranslateElement({
+				pageLanguage: 'es',
+				autoDisplay: false
+			}, 'google_translate_element');
+		}
+	
+		function translatePage(lang) {
+			const select = document.querySelector('.goog-te-combo');
+			if (select) {
+				select.value = lang;
+				select.dispatchEvent(new Event('change'));
+				setTimeout(() => updateLanguageText(lang), 500); // actualizar botón
+			}
+		}
+	
+		function getLanguageFromCookie() {
+			const match = document.cookie.match(/googtrans=\/[a-z]{2}\/([a-z]{2})/);
+			return match ? match[1] : 'es';
+		}
+	
+		function updateLanguageText(langCode) {
+			const textos = {
+				es: 'Bienvenido',
+				en: 'Welcome',
+				fr: 'Bienvenue',
+				de: 'Willkommen',
+				ca: 'Benvinguts',
+				gl: 'Benvidos',
+				eu: 'Ongi etorri'
+			};
+			document.getElementById('idiomaActual').textContent = textos[langCode] || 'Bienvenido';
+		}
+	
+		// Espera que Google Translate cargue y luego sincroniza idioma
+		window.addEventListener('load', () => {
+			setTimeout(() => {
+				const lang = getLanguageFromCookie();
+				updateLanguageText(lang);
+			}, 1000);
+		});
+	</script>
+	<script src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+	<script src="/CITE/INTER/js/chardin/chardinjs.js"></script>
+	<script type="text/javascript">
+		$(document).ready(function() {
+			$('body').chardinJs();
+		});
+
+		$('#toggleHelp').on('click', function() {
+			console.log("togle asistente");
+			$('body').chardinJs('toggle')
+		});
+	</script>
+	<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+	<script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
+	<script type="text/javascript" src="https://cdn.datatables.net/1.12.1/js/dataTables.bootstrap5.min.js"></script>
+	<script type="text/javascript" src="https://cdn.datatables.net/rowgroup/1.2.0/js/dataTables.rowGroup.min.js"></script>
+	<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment-with-locales.min.js" integrity="sha512-LGXaggshOkD/at6PFNcp2V2unf9LzFq6LE+sChH7ceMTDP0g2kn6Vxwgg7wkPP7AAtX+lmPqPdxB47A0Nz0cMQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+	<script type="text/javascript" src="https://cdn.datatables.net/plug-ins/1.10.25/sorting/datetime-moment.js"></script>
+	<script type="text/javascript" src="https://cdn.datatables.net/datetime/1.1.2/js/dataTables.dateTime.min.js"></script>
+	<script type="text/javascript" src="https://cdn.datatables.net/plug-ins/1.10.25/dataRender/datetime.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/js-cookie@2/src/js.cookie.min.js"></script>
+	<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/bs-stepper/dist/js/bs-stepper.min.js"></script>
+	<script src="https://unpkg.com/js-year-calendar@latest/dist/js-year-calendar.min.js"></script>
+	<script src="https://unpkg.com/js-year-calendar@2.0.0/locales/js-year-calendar.es.js"></script>
+	<script src="/CITE/INTER/js/dgt_nuevo.js"></script>
+	<script src="/CITE/INTER/js/ctda.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.3/js/intlTelInput.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/intl-tel-input/17.0.3/js/utils.min.js">
+	</script></body><script type="text/javascript">
+		window.isPaginaCtda = false;
+	</script>
+</html>

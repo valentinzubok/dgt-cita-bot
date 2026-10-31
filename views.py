@@ -12,8 +12,10 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import config
 import dgt
+import premium
+import rewards
 import store
-from tg import btn, ikb, url
+from tg import btn, copy, ikb, url, webapp
 
 esc = html.escape
 BRAND_LINE = f"🇪🇸 <b>{config.BRAND}</b> · cita previa DGT"
@@ -43,6 +45,7 @@ CAL = {
         "head": ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"],
     },
 }
+outage = lambda: False  # checker подставляет сюда проверку «сайт DGT недоступен»  # noqa: E731
 LOAD = {"bajaOcupacion": "🟢", "mediaOcupacion": "🟡", "altaOcupacion": "🔴"}
 FILTER_DAYS = (0, 7, 14, 30, 60)
 BLANK = "⠀"  # пустая клетка календаря: Telegram не принимает кнопки с пустым текстом
@@ -309,47 +312,91 @@ def language_picker(back: str = "") -> Tuple[str, dict]:
 
 # ---------- главный экран ----------
 
+def banner(kind: str = "") -> Optional[str]:
+    """Картинка над экраном. Версия в адресе: Telegram кэширует превью по ссылке."""
+    if not config.PUBLIC_URL:
+        return None
+    return f"{config.PUBLIC_URL}/static/banner{'_' + kind if kind else ''}.jpg?v={config.VERSION}"
+
+
+def short_date(lang: str, ts: int) -> str:
+    dt = datetime.fromtimestamp(ts, config.TZ)
+    return f"{dt.day} {CAL[lang]['gen'][dt.month - 1][:3]}"
+
+
+def hours_text(lang: str, hours: int) -> str:
+    if hours < 24:
+        return tx(lang, f"{hours} ч", f"{hours} год")
+    return days_word(lang, hours // 24)
+
+
+def tier_line(chat: int, lang: str) -> str:
+    if premium.is_premium(chat):
+        until = store.get_chat(chat).get("premium_until") or 0
+        when = tx(lang, " до ", " до ") + short_date(lang, until) if until > time.time() else ""
+        return f"💎 <b>{config.BRAND} Premium</b>{when}"
+    return BRAND_LINE
+
+
+def progress(done: int, total: int) -> str:
+    return "▰" * done + "▱" * max(0, total - done) + f" {done}/{total}"
+
+
+def outage_note(lang: str) -> str:
+    return tx(lang, "🛑 <b>Сайт DGT сейчас недоступен для проверок.</b> Даты могут быть неактуальны, "
+                    "уведомления придут, когда связь вернётся.",
+              "🛑 <b>Сайт DGT зараз недоступний для перевірок.</b> Дати можуть бути неактуальні, "
+              "сповіщення надійдуть, коли зв’язок повернеться.")
+
+
 def dashboard(chat: int, name: str = "", next_check: Optional[int] = None, note: str = "") -> Tuple[str, dict]:
     lang = lang_of(chat)
     subs = store.subs_of(chat)
-    lines = [BRAND_LINE, ""]
+    paid = premium.is_premium(chat)
+    lines = [tier_line(chat, lang), ""]
     if not subs:
-        hello = tx(lang, "Привет", "Привіт") + (f", {esc(name)}" if name else "") + "! 👋"
         lines += [
-            hello,
-            tx(lang, "Я слежу за свободными датами записи в <b>DGT (Tráfico)</b> и сразу присылаю уведомление, "
-                     "когда они появляются.",
-               "Я стежу за вільними датами запису в <b>DGT (Tráfico)</b> і одразу надсилаю сповіщення, "
-               "щойно вони з’являються."),
+            tx(lang, "Привет", "Привіт") + (f", <b>{esc(name)}</b>" if name else "") + "! 👋",
+            tx(lang, "Ловлю свободные даты записи в <b>DGT (Tráfico)</b> и пишу сразу, как они появляются. "
+                     "Сайт обновлять больше не нужно.",
+               "Ловлю вільні дати запису в <b>DGT (Tráfico)</b> і пишу одразу, щойно вони з’являються. "
+               "Сайт оновлювати більше не треба."),
             "",
-            tx(lang, "<b>Как начать</b>", "<b>Як почати</b>"),
-            tx(lang, "1️⃣ Нажми «➕ Добавить офис»", "1️⃣ Натисни «➕ Додати офіс»"),
-            tx(lang, "2️⃣ Выбери город и тип записи", "2️⃣ Обери місто і тип запису"),
-            tx(lang, "3️⃣ Жди уведомление 🔔", "3️⃣ Чекай на сповіщення 🔔"),
-            "",
-            tx(lang, "📡 Или запусти <b>радар</b> — найду ближайший офис, где записаться можно раньше всего.",
-               "📡 Або запусти <b>радар</b> — знайду найближчий офіс, де записатися можна найшвидше."),
+            "<blockquote>" + tx(lang, "1️⃣ Выбери офис\n2️⃣ Выбери тип записи\n3️⃣ Получи уведомление 🔔",
+                                "1️⃣ Обери офіс\n2️⃣ Обери тип запису\n3️⃣ Отримай сповіщення 🔔") + "</blockquote>",
+            tx(lang, "📡 Не знаешь, куда ехать? <b>Радар</b> найдёт офис рядом, где запись раньше всего.",
+               "📡 Не знаєш, куди їхати? <b>Радар</b> знайде офіс поруч, де запис найшвидше."),
         ]
     else:
-        lines.append(tx(lang, "📋 <b>Подписки</b> · ", "📋 <b>Підписки</b> · ") + f"{len(subs)}/{store.setting('max_subs')}")
+        minutes = store.setting("interval_premium" if paid else "interval")
+        strip = [f"🏢 <b>{premium.active_subs_count(chat)}/{premium.limit_subs(chat)}</b>"]
+        if store.setting("checks_paused"):
+            strip.append(tx(lang, "⏸ проверки остановлены", "⏸ перевірки зупинені"))
+        elif next_check and next_check > time.time():
+            mins = max(1, math.ceil((next_check - time.time()) / 60))
+            strip.append(tx(lang, f"⏱ через <b>{mins} мин</b>", f"⏱ за <b>{mins} хв</b>"))
+        strip.append(tx(lang, f"⚡️ каждые {minutes} мин", f"⚡️ кожні {minutes} хв"))
+        lines.append(" · ".join(strip))
         rows = []
         for s in subs:
             emoji, text = summary(s, lang)
-            rows.append(f"{emoji} <b>{esc(city(s['centro']))}</b> · {esc(sub_area(s))} — {text}")
+            rows.append(f"{emoji} <b>{esc(city(s['centro']))}</b> · {esc(sub_area(s))}\n<i>{text}</i>")
         lines.append("<blockquote>" + "\n".join(rows) + "</blockquote>")
-        if store.setting("checks_paused"):
-            lines.append(tx(lang, "⏸ Проверки временно остановлены", "⏸ Перевірки тимчасово зупинені"))
-        elif next_check:
-            mins = max(1, math.ceil((next_check - time.time()) / 60))
-            lines.append(tx(lang, "⏱ Следующая проверка через ", "⏱ Наступна перевірка за ")
-                         + pl(lang, mins, ("минуту", "минуты", "минут"), ("хвилину", "хвилини", "хвилин")))
+        if not paid:
+            lines.append(tx(lang, f"💎 Premium от {premium.plan_price('p7')} ⭐ или бесплатно в «Бонусах»",
+                            f"💎 Premium від {premium.plan_price('p7')} ⭐ або безкоштовно в «Бонусах»"))
+    if outage():
+        lines += ["", outage_note(lang)]
     if note:
         lines += ["", note]
 
-    rows = [[btn(tx(lang, "➕ Добавить офис", "➕ Додати офіс"), "p:0"), btn("📡 " + tx(lang, "Радар", "Радар"), "rd")]]
-    if subs:
-        rows.append([btn(tx(lang, "📋 Подписки", "📋 Підписки") + f" ({len(subs)})", "l"),
-                     btn(tx(lang, "🔄 Проверить", "🔄 Перевірити"), "ca")])
+    rows = [[btn(tx(lang, "➕ Добавить офис", "➕ Додати офіс"), "p:0", "primary")]]
+    rows.append([btn(tx(lang, "📋 Мои офисы", "📋 Мої офіси") + (f" · {len(subs)}" if subs else ""), "l"),
+                 btn("📡 " + tx(lang, "Радар", "Радар"), "rd")])
+    rows.append([btn("💎 Premium", "pr", None if paid else "success"),
+                 btn(tx(lang, "🎁 Бонусы", "🎁 Бонуси"), "bn")])
+    if paid and premium.app_url():
+        rows.append([webapp(tx(lang, "📱 Приложение", "📱 Застосунок"), premium.app_url(), "primary")])
     rows.append([btn(tx(lang, "⚙️ Настройки", "⚙️ Налаштування"), "st"), btn(tx(lang, "❓ Помощь", "❓ Допомога"), "hp")])
     rows.append([btn(tx(lang, "🇺🇦 Для украинцев", "🇺🇦 Для українців"), "ua")])
     if is_admin(chat):
@@ -427,8 +474,8 @@ def subs_list(chat: int, header: str = "") -> Tuple[str, dict]:
         return (tx(lang, "📋 <b>Подписок пока нет</b>\n\nНажми «➕ Добавить офис» — и я начну следить за свободными датами.",
                    "📋 <b>Підписок поки немає</b>\n\nНатисни «➕ Додати офіс» — і я почну стежити за вільними датами."),
                 ikb([[btn(tx(lang, "➕ Добавить офис", "➕ Додати офіс"), "p:0")], [home_btn(lang)]]))
-    lines = [header or tx(lang, "📋 <b>Твои подписки</b> · ", "📋 <b>Твої підписки</b> · ")
-             + f"{len(subs)}/{store.setting('max_subs')}", ""]
+    lines = [header or tx(lang, "📋 <b>Мои офисы</b> · ", "📋 <b>Мої офіси</b> · ")
+             + f"{premium.active_subs_count(chat)}/{premium.limit_subs(chat)}", ""]
     rows = []
     for s in subs:
         emoji, text = summary(s, lang)
@@ -480,17 +527,19 @@ def card(sub: dict, note: str = "") -> Tuple[str, dict]:
         lines.append(f"\n{note}")
 
     status = (last or [{}])[0].get("status")
-    rows = [[url(tx(lang, "📝 Записаться на сайте DGT", "📝 Записатися на сайті DGT"), dgt.START_URL)]]
+    if outage():
+        lines.insert(2, outage_note(lang) + "\n")
+    rows = [[url(tx(lang, "📝 Записаться на сайте DGT", "📝 Записатися на сайті DGT"), dgt.START_URL, "primary")]]
     if status == dgt.NO_AREA:
         rows.append([btn(tx(lang, "🔁 Выбрать тип записи заново", "🔁 Обрати тип запису знову"), f"c:{sub['centro']}")])
     if days:
-        rows.append([btn(tx(lang, "✅ Я записался", "✅ Я записався"), f"bk:{sid}")])
+        rows.append([btn(tx(lang, "✅ Я записался", "✅ Я записався"), f"bk:{sid}", "success")])
     rows += [
         [btn(tx(lang, "🗓 Календарь", "🗓 Календар"), f"k:{sid}:0"), btn(tx(lang, "🔄 Обновить", "🔄 Оновити"), f"r:{sid}")],
         [btn("📡 " + tx(lang, "Радар рядом", "Радар поруч"), f"rs:{sid}"),
          btn("📅 " + filter_label(lang, sub.get("max_days")).capitalize(), f"f:{sid}")],
         [btn(tx(lang, "▶️ Возобновить", "▶️ Відновити") if sub.get("paused") else "⏸ " + tx(lang, "Пауза", "Пауза"), f"z:{sid}"),
-         btn(tx(lang, "📊 История", "📊 Історія"), f"h:{sid}"), btn("🗑", f"x:{sid}")],
+         btn(tx(lang, "📊 История", "📊 Історія"), f"h:{sid}"), btn("🗑", f"x:{sid}", "danger")],
         [btn(tx(lang, "⬅️ Подписки", "⬅️ Підписки"), "l"), home_btn(lang)],
     ]
     return "\n".join(l for l in lines if l is not None), ikb(rows)
@@ -590,15 +639,14 @@ def history_view(sub: dict) -> Tuple[str, dict]:
         if closed:
             lines.append(tx(lang, "⌛️ В среднем держатся ", "⌛️ У середньому тримаються ")
                          + fmt_dur(sum(closed) // len(closed), lang))
-        lines.append(tx(lang, f"\n<i>Точность — интервал проверки, {store.setting('interval')} мин.</i>",
-                        f"\n<i>Точність — інтервал перевірки, {store.setting('interval')} хв.</i>"))
+        lines.append(tx(lang, "\n<i>Точность — интервал проверки.</i>", "\n<i>Точність — інтервал перевірки.</i>"))
     return "\n".join(lines), ikb([[btn(tx(lang, "⬅️ К подписке", "⬅️ До підписки"), f"s:{sub['id']}")]])
 
 
 def delete_confirm(sub: dict) -> Tuple[str, dict]:
     lang = lang_of(sub["chat"])
     return (tx(lang, "🗑 <b>Удалить подписку?</b>\n", "🗑 <b>Видалити підписку?</b>\n") + title(sub),
-            ikb([[btn(tx(lang, "Да, удалить", "Так, видалити"), f"xx:{sub['id']}"),
+            ikb([[btn(tx(lang, "Да, удалить", "Так, видалити"), f"xx:{sub['id']}", "danger"),
                   btn(tx(lang, "Отмена", "Скасувати"), f"s:{sub['id']}")]]))
 
 
@@ -724,8 +772,8 @@ def alert(sub: dict, results: list, new: Set[str]) -> Tuple[str, dict]:
     lines.append(tx(lang, "<i>На сайте: ", "<i>На сайті: ")
                  + f"{esc(city(sub['centro']))} → {esc(sub_area(sub))} → Continuar → Pedir cita</i>")
     kb = ikb([
-        [url(tx(lang, "📝 Записаться на сайте DGT", "📝 Записатися на сайті DGT"), dgt.START_URL)],
-        [btn(tx(lang, "✅ Я записался", "✅ Я записався"), f"bk:{sub['id']}"),
+        [url(tx(lang, "📝 Записаться на сайте DGT", "📝 Записатися на сайті DGT"), dgt.START_URL, "primary")],
+        [btn(tx(lang, "✅ Я записался", "✅ Я записався"), f"bk:{sub['id']}", "success"),
          btn(tx(lang, "🗓 Календарь", "🗓 Календар"), f"k:{sub['id']}:0")],
         [btn(tx(lang, "✖️ Скрыть", "✖️ Сховати"), "hide")],
     ])
@@ -813,7 +861,8 @@ def radar_results(chat: int, cid: str, cat: str, km: int, found: list) -> Tuple[
         rows.insert(0, [url(tx(lang, "📝 Записаться на сайте DGT", "📝 Записатися на сайті DGT"), dgt.START_URL)])
     wider = [k for k in (150, 250) if k > km]
     if wider:
-        rows.append([btn(tx(lang, f"🔭 Искать до {wider[0]} км", f"🔭 Шукати до {wider[0]} км"),
+        lock = "" if premium.is_premium(chat) else " 💎"
+        rows.append([btn(tx(lang, f"🔭 Искать до {wider[0]} км", f"🔭 Шукати до {wider[0]} км") + lock,
                          f"rr:{cid}:{cat}:{wider[0]}")])
     rows.append([btn(tx(lang, "📡 Новый поиск", "📡 Новий пошук"), "rd"), home_btn(lang)])
     return "\n".join(lines), ikb(rows)
@@ -824,16 +873,20 @@ def radar_results(chat: int, cid: str, cat: str, km: int, found: list) -> Tuple[
 def settings_view(chat: int) -> Tuple[str, dict]:
     lang = lang_of(chat)
     quiet = store.get_chat(chat).get("quiet")
+    ads = store.get_chat(chat).get("ads_ok")
+    minutes = store.setting("interval_premium" if premium.is_premium(chat) else "interval")
     text = (tx(lang, "⚙️ <b>Настройки</b>\n\n", "⚙️ <b>Налаштування</b>\n\n")
             + tx(lang, f"🌙 <b>Тихий режим ночью</b>: {'включён' if quiet else 'выключен'}\n"
                        "<i>С 00:00 до 08:00 по Мадриду уведомления приходят без звука.</i>\n\n",
                  f"🌙 <b>Тихий режим уночі</b>: {'увімкнено' if quiet else 'вимкнено'}\n"
                  "<i>З 00:00 до 08:00 за Мадридом сповіщення надходять без звуку.</i>\n\n")
             + tx(lang, f"🌐 Язык: {LANGS[lang]}\n", f"🌐 Мова: {LANGS[lang]}\n")
-            + tx(lang, f"⏱ Проверка каждые {store.setting('interval')} мин\n", f"⏱ Перевірка кожні {store.setting('interval')} хв\n")
-            + tx(lang, f"🏢 До {store.setting('max_subs')} офисов одновременно", f"🏢 До {store.setting('max_subs')} офісів одночасно"))
+            + tx(lang, f"⏱ Проверка каждые {minutes} мин\n", f"⏱ Перевірка кожні {minutes} хв\n")
+            + tx(lang, f"🏢 До {premium.limit_subs(chat)} офисов одновременно", f"🏢 До {premium.limit_subs(chat)} офісів одночасно"))
     return text, ikb([
         [btn(tx(lang, f"🌙 Тихий режим: {'вкл' if quiet else 'выкл'}", f"🌙 Тихий режим: {'увімк' if quiet else 'вимк'}"), "q")],
+        [btn(tx(lang, f"📣 Предложения партнёров: {'вкл' if ads else 'выкл'}",
+                f"📣 Пропозиції партнерів: {'увімк' if ads else 'вимк'}"), "adt")],
         [btn(tx(lang, "🌐 Язык / Мова", "🌐 Мова / Язык"), "lp"),
          btn(tx(lang, "🔒 Данные", "🔒 Дані"), "pv")],
         [btn(tx(lang, "🗑 Удалить все подписки", "🗑 Видалити всі підписки"), "xa")],
@@ -853,11 +906,12 @@ def help_view(chat: int) -> Tuple[str, dict]:
               "• 🗓 календарь со свободным временем\n"
               "• ✅ «Я записался»: напомню о визите и подскажу, что взять\n"
               "• 📅 присылать только даты раньше нужной, ⏸ пауза, 📊 история\n"
-              "• 🌙 тихий режим ночью\n\n"
+              "• 🌙 тихий режим ночью\n"
+              "• 🎁 бесплатный Premium за задания и друзей\n\n"
               "<b>Советы</b>\n"
               "• Места быстро разбирают — открывай сайт сразу после уведомления\n"
               "• Держи под рукой DNI/NIE: сайт спросит данные при записи\n\n"
-              "Записываешься ты сам — я только сообщаю, когда есть места.",
+              "Записываешься ты сам — я только сообщаю, когда есть места. Бот не связан с DGT.",
               "❓ <b>Як це працює</b>\n\n"
               "Я заходжу на сайт DGT так само, як це зробив би ти: обираю офіс і тип запису та дивлюся календар. "
               "Щойно з’являються вільні дні — надсилаю сповіщення з датами й часом.\n\n"
@@ -867,12 +921,14 @@ def help_view(chat: int) -> Tuple[str, dict]:
               "• 🗓 календар із вільним часом\n"
               "• ✅ «Я записався»: нагадаю про візит і підкажу, що взяти\n"
               "• 📅 надсилати лише дати раніше потрібної, ⏸ пауза, 📊 історія\n"
-              "• 🌙 тихий режим уночі\n\n"
+              "• 🌙 тихий режим уночі\n"
+              "• 🎁 безкоштовний Premium за завдання й друзів\n\n"
               "<b>Поради</b>\n"
               "• Місця швидко розбирають — відкривай сайт одразу після сповіщення\n"
               "• Тримай під рукою DNI/NIE: сайт спитає дані під час запису\n\n"
-              "Записуєшся ти сам — я лише повідомляю, коли є місця.")
-    return text, ikb([[btn(tx(lang, "🇺🇦 Для украинцев", "🇺🇦 Для українців"), "ua")], [home_btn(lang)]])
+              "Записуєшся ти сам — я лише повідомляю, коли є місця. Бот не пов’язаний з DGT.")
+    return text, ikb([[btn(tx(lang, "🇺🇦 Для украинцев", "🇺🇦 Для українців"), "ua"),
+                       btn(tx(lang, "📄 Условия", "📄 Умови"), "tm")], [home_btn(lang)]])
 
 
 def ukraine_view(chat: int) -> Tuple[str, dict]:
@@ -922,20 +978,26 @@ def privacy_view(chat: int) -> Tuple[str, dict]:
     text = tx(lang,
               "🔒 <b>Конфиденциальность</b>\n\n"
               "<b>Что я храню</b>\n<blockquote>• Telegram ID, имя и @username\n• язык и настройки\n"
-              "• подписки: офис, тип записи, фильтр дат и дату визита, если ты её указал</blockquote>\n"
-              "<b>Зачем</b> — только чтобы присылать уведомления и напоминания. "
+              "• подписки: офис, тип записи, фильтр дат и дату визита, если ты её указал\n"
+              "• тариф, оплаты, приглашения и выполненные задания\n"
+              "• согласие на предложения партнёров</blockquote>\n"
+              "<b>Зачем</b> — чтобы присылать уведомления и напоминания и вести твой тариф. "
               "Данные не продаются и не передаются третьим лицам.\n"
               "<b>Где</b> — на серверах в ЕС (Франкфурт).\n\n"
               "Бот не связан с DGT и не записывает тебя сам — запись делаешь ты на официальном сайте.\n\n"
-              "Удалить все свои данные можно кнопкой ниже.",
+              "Удалить свои данные можно кнопкой ниже. Записи об оплатах хранятся столько, сколько требует закон. "
+              "От бонусов и промокодов остаётся только хеш, без имени и открытого ID: он нужен, чтобы их нельзя было получить повторно.",
               "🔒 <b>Конфіденційність</b>\n\n"
               "<b>Що я зберігаю</b>\n<blockquote>• Telegram ID, ім’я та @username\n• мову й налаштування\n"
-              "• підписки: офіс, тип запису, фільтр дат і дату візиту, якщо ти її вказав</blockquote>\n"
-              "<b>Навіщо</b> — лише щоб надсилати сповіщення й нагадування. "
+              "• підписки: офіс, тип запису, фільтр дат і дату візиту, якщо ти її вказав\n"
+              "• тариф, оплати, запрошення й виконані завдання\n"
+              "• згоду на пропозиції партнерів</blockquote>\n"
+              "<b>Навіщо</b> — щоб надсилати сповіщення й нагадування та вести твій тариф. "
               "Дані не продаються і не передаються третім особам.\n"
               "<b>Де</b> — на серверах у ЄС (Франкфурт).\n\n"
               "Бот не пов’язаний з DGT і не записує тебе сам — запис робиш ти на офіційному сайті.\n\n"
-              "Видалити всі свої дані можна кнопкою нижче.")
+              "Видалити свої дані можна кнопкою нижче. Записи про оплати зберігаються стільки, скільки вимагає закон. "
+              "Від бонусів і промокодів лишається тільки хеш, без імені й відкритого ID: він потрібен, щоб їх не можна було отримати повторно.")
     return text, ikb([[btn(tx(lang, "🗑 Удалить мои данные", "🗑 Видалити мої дані"), "dm")],
                       [btn(tx(lang, "⬅️ Настройки", "⬅️ Налаштування"), "st"), home_btn(lang)]])
 
@@ -948,8 +1010,8 @@ def delete_me_confirm(chat: int) -> Tuple[str, dict]:
 
 
 def deleted_text(lang: str) -> str:
-    return tx(lang, "✅ Все твои данные удалены. Если захочешь вернуться — нажми /start.",
-              "✅ Усі твої дані видалено. Якщо захочеш повернутися — натисни /start.")
+    return tx(lang, "✅ Твои данные удалены. Если захочешь вернуться — нажми /start.",
+              "✅ Твої дані видалено. Якщо захочеш повернутися — натисни /start.")
 
 
 def maintenance_view(lang: str) -> Tuple[str, dict]:
@@ -968,3 +1030,221 @@ def pending_view(lang: str) -> Tuple[str, dict]:
 
 def banned_view(lang: str) -> Tuple[str, dict]:
     return f"{BRAND_LINE}\n\n" + tx(lang, "🚫 Доступ к боту закрыт.", "🚫 Доступ до бота закрито."), ikb([])
+
+
+# ---------- Premium ----------
+
+def plan_buttons(chat: int, lang: str) -> list:
+    month, quarter = premium.plan_price("p30"), premium.plan_price("p90")
+    saving = round((1 - quarter / (3 * month)) * 100) if month else 0
+    labels = {"p30": tx(lang, "месяц · автопродление", "місяць · автопродовження"), "p7": tx(lang, "неделя", "тиждень"),
+              "p90": tx(lang, "3 месяца", "3 місяці") + (f" · −{saving}%" if saving > 0 else "")}
+    rows = []
+    for plan in ("p30", "p7", "p90"):
+        link = premium.invoice_link(plan, lang)
+        if link:
+            rows.append([url(f"⭐️ {premium.plan_price(plan)} · {labels[plan]}", link, "success" if plan == "p30" else None)])
+    return rows
+
+
+def premium_view(chat: int, note: str = "") -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    c = store.get_chat(chat)
+    paid = premium.is_premium(chat)
+    free, top = store.setting("free_subs"), store.setting("max_subs")
+    slow, fast = store.setting("interval"), store.setting("interval_premium")
+    per_day = max(1, round(premium.plan_price("p30") / 30))
+    lines = ["💎 <b>OkSita Premium</b>"]
+    if paid:
+        until = c.get("premium_until") or 0
+        if until > time.time():
+            days_left = max(1, math.ceil((until - time.time()) / 86400))
+            lines.append(tx(lang, "✅ Активен до ", "✅ Активний до ") + f"<b>{datetime.fromtimestamp(until, config.TZ):%d.%m.%Y}</b>"
+                         + f" · {days_word(lang, days_left)}")
+            if c.get("sub_active"):
+                lines.append(tx(lang, "🔁 Автопродление включено", "🔁 Автопродовження увімкнено"))
+        else:
+            lines.append(tx(lang, "✅ Активен без срока", "✅ Активний без терміну"))
+    else:
+        lines.append(tx(lang, f"Около {per_day} ⭐ в день — дешевле чашки кофе ☕️",
+                        f"Близько {per_day} ⭐ на день — дешевше за чашку кави ☕️"))
+    lines += ["", tx(lang, "<b>Бесплатно → Premium</b>", "<b>Безкоштовно → Premium</b>")]
+    lines.append("<blockquote>" + tx(
+        lang,
+        f"🏢 Офисов: {free} → <b>{top}</b>\n"
+        f"⚡️ Проверка: {slow} → <b>{fast} мин</b>\n"
+        "📡 Радар: 1 в день → <b>без лимита</b>\n"
+        "📏 Радиус радара: 100 → <b>250 км</b>\n"
+        "🚀 Очередь проверок: <b>первым</b>\n"
+        "📱 Мини-приложение: <b>есть</b>\n"
+        "🔕 Реклама: <b>нет</b>",
+        f"🏢 Офісів: {free} → <b>{top}</b>\n"
+        f"⚡️ Перевірка: {slow} → <b>{fast} хв</b>\n"
+        "📡 Радар: 1 на день → <b>без ліміту</b>\n"
+        "📏 Радіус радара: 100 → <b>250 км</b>\n"
+        "🚀 Черга перевірок: <b>першим</b>\n"
+        "📱 Міні-застосунок: <b>є</b>\n"
+        "🔕 Реклама: <b>немає</b>") + "</blockquote>")
+    if outage():
+        lines.append(tx(lang, "🛑 Сейчас проверки DGT не работают, поэтому оплата временно закрыта. Бонусы и промокоды работают.",
+                        "🛑 Зараз перевірки DGT не працюють, тому оплату тимчасово закрито. Бонуси й промокоди працюють."))
+    else:
+        lines.append(tx(lang, "<i>Оплата звёздами Telegram. Premium ускоряет уведомления, но не гарантирует запись.</i>",
+                        "<i>Оплата зірками Telegram. Premium пришвидшує сповіщення, але не гарантує запис.</i>"))
+    if note:
+        lines += ["", note]
+    rows = [] if outage() else plan_buttons(chat, lang)
+    if paid and premium.app_url():
+        rows.append([webapp(tx(lang, "📱 Открыть приложение", "📱 Відкрити застосунок"), premium.app_url(), "primary")])
+    if c.get("sub_active"):
+        rows.append([btn(tx(lang, "🚫 Отключить автопродление", "🚫 Вимкнути автопродовження"), "pc")])
+    rows.append([btn(tx(lang, "🎁 Получить бесплатно", "🎁 Отримати безкоштовно"), "bn"),
+                 btn(tx(lang, "🎟 Промокод", "🎟 Промокод"), "pm")])
+    rows.append([btn(tx(lang, "📄 Условия", "📄 Умови"), "tm"), home_btn(lang)])
+    return "\n".join(lines), ikb(rows)
+
+
+def premium_notice(chat: int, kind: str, until: int, paused: int = 0) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    if kind == "soon":
+        text = tx(lang, f"💎 Premium закончится {datetime.fromtimestamp(until, config.TZ):%d.%m в %H:%M}. "
+                        "Продли или получи бесплатно в «🎁 Бонусах».",
+                  f"💎 Premium закінчиться {datetime.fromtimestamp(until, config.TZ):%d.%m о %H:%M}. "
+                  "Продовж або отримай безкоштовно в «🎁 Бонусах».")
+    else:
+        text = tx(lang, "💎 <b>Premium закончился.</b>", "💎 <b>Premium закінчився.</b>")
+        if paused:
+            text += tx(lang, f"\nОфисов на паузе: {paused}. Включить их снова можно с Premium или освободив место.",
+                       f"\nОфісів на паузі: {paused}. Увімкнути їх знову можна з Premium або звільнивши місце.")
+    return text, ikb([[btn("💎 Premium", "pr", "success"), btn(tx(lang, "🎁 Бонусы", "🎁 Бонуси"), "bn")],
+                      [btn(tx(lang, "✖️ Скрыть", "✖️ Сховати"), "hide")]])
+
+
+def limit_view(chat: int) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    limit = premium.limit_subs(chat)
+    if premium.is_premium(chat):
+        return (tx(lang, f"😅 Максимум — {limit} офисов. Удали ненужный и добавь новый.",
+                   f"😅 Максимум — {limit} офісів. Видали непотрібний і додай новий."),
+                ikb([[btn(tx(lang, "📋 Мои офисы", "📋 Мої офіси"), "l"), home_btn(lang)]]))
+    return (tx(lang, f"🔒 На бесплатном тарифе — {limit} офиса.\n\n"
+                     f"💎 С Premium до {store.setting('max_subs')} офисов и проверка чаще. "
+                     "Premium можно получить бесплатно — за задания и друзей.",
+               f"🔒 На безкоштовному тарифі — {limit} офіси.\n\n"
+               f"💎 З Premium до {store.setting('max_subs')} офісів і перевірка частіше. "
+               "Premium можна отримати безкоштовно — за завдання й друзів."),
+            ikb([[btn("💎 Premium", "pr", "success"), btn(tx(lang, "🎁 Бонусы", "🎁 Бонуси"), "bn")],
+                 [btn(tx(lang, "📋 Мои офисы", "📋 Мої офіси"), "l"), home_btn(lang)]]))
+
+
+def app_locked(chat: int) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    return (tx(lang, "📱 <b>Мини-приложение</b> — только для Premium.", "📱 <b>Міні-застосунок</b> — лише для Premium."),
+            ikb([[btn("💎 Premium", "pr", "success"), home_btn(lang)]]))
+
+
+def thanks_text(lang: str, plan: str, until: int) -> str:
+    return tx(lang, f"🎉 <b>Спасибо!</b> Premium активен до {datetime.fromtimestamp(until, config.TZ):%d.%m.%Y}.",
+              f"🎉 <b>Дякуємо!</b> Premium активний до {datetime.fromtimestamp(until, config.TZ):%d.%m.%Y}.")
+
+
+def terms_view(chat: int) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    text = tx(lang,
+              "📄 <b>Условия</b>\n\n"
+              "<blockquote>• OkSita — независимый сервис, не связан с DGT и не продаёт записи.\n"
+              "• Бот только уведомляет о свободных датах. Записываешься ты сам на официальном сайте.\n"
+              "• Запись через сайт DGT бесплатна. Premium — плата за удобство бота: больше офисов и более частые проверки.\n"
+              "• Мы не гарантируем, что запись появится, и не отвечаем за сбои сайта DGT.\n"
+              "• Подписка на 30 дней продлевается автоматически, отключить можно в любой момент в «💎 Premium».\n"
+              "• Цифровая услуга начинается сразу после оплаты.</blockquote>\n"
+              "Вопросы по оплате: /paysupport",
+              "📄 <b>Умови</b>\n\n"
+              "<blockquote>• OkSita — незалежний сервіс, не пов’язаний з DGT і не продає записи.\n"
+              "• Бот лише сповіщає про вільні дати. Записуєшся ти сам на офіційному сайті.\n"
+              "• Запис через сайт DGT безкоштовний. Premium — плата за зручність бота: більше офісів і частіші перевірки.\n"
+              "• Ми не гарантуємо, що запис з’явиться, і не відповідаємо за збої сайту DGT.\n"
+              "• Підписка на 30 днів продовжується автоматично, вимкнути можна будь-коли в «💎 Premium».\n"
+              "• Цифрова послуга починається одразу після оплати.</blockquote>\n"
+              "Питання щодо оплати: /paysupport")
+    return text, ikb([[btn("💎 Premium", "pr"), home_btn(lang)]])
+
+
+def paysupport_view(chat: int) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    return (tx(lang, "💳 <b>Поддержка по оплате</b>\n\nОпиши проблему одним сообщением: что купил и что пошло не так. "
+                     "Я передам администратору, он ответит здесь же.",
+               "💳 <b>Підтримка щодо оплати</b>\n\nОпиши проблему одним повідомленням: що купив і що пішло не так. "
+               "Я передам адміністратору, він відповість тут же."),
+            ikb([[btn(tx(lang, "Отмена", "Скасувати"), "home")]]))
+
+
+# ---------- бонусы ----------
+
+def bonus_view(chat: int, note: str = "") -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    friends = store.friends_of(chat)
+    counted = sum(1 for f in friends if f.get("ref_done_at"))
+    ref = store.setting("ref_hours")
+    req = rewards.required_task()
+    lines = [tx(lang, "🎁 <b>Бонусы</b>\nPremium бесплатно — за друзей и задания",
+                "🎁 <b>Бонуси</b>\nPremium безкоштовно — за друзів і завдання"), ""]
+    lines.append(tx(lang, "👥 <b>Пригласи друга</b>", "👥 <b>Запроси друга</b>"))
+    deal = tx(lang, f"+{hours_text(lang, ref)} Premium тебе и другу, когда он добавит офис",
+              f"+{hours_text(lang, ref)} Premium тобі й другові, коли він додасть офіс")
+    if req:
+        channel = esc(req["title_uk"] if lang == "uk" else req["title_ru"])
+        deal += tx(lang, f" и вы оба подпишетесь: {channel}", f" і ви обидва підпишетеся: {channel}")
+    lines.append("<blockquote>" + deal + "\n"
+                 + tx(lang, f"Приглашено: <b>{len(friends)}</b> · засчитано: <b>{counted}</b>",
+                      f"Запрошено: <b>{len(friends)}</b> · зараховано: <b>{counted}</b>") + "</blockquote>")
+    items, rows = [], []
+    finished = 0
+    for key, (ru, uk, hours) in rewards.BUILTIN.items():
+        done = store.task_is_done(key, chat)
+        finished += done
+        items.append(f"{'✅' if done else '▫️'} {esc(tx(lang, ru, uk))} · <b>+{hours_text(lang, hours)}</b>")
+        if key == "b:ads" and not done:
+            rows.append([btn(tx(lang, "📣 Включить предложения партнёров", "📣 Увімкнути пропозиції партнерів"), "adt:b")])
+    for t in store.tasks(active_only=True):
+        done = store.task_is_done(f"t:{t['id']}", chat)
+        finished += done
+        task = esc(tx(lang, t["title_ru"], t["title_uk"]))
+        items.append(f"{'✅' if done else '▫️'} {task} · <b>+{hours_text(lang, t['hours'])}</b>")
+        if not done:
+            rows.append([url(f"➡️ {tx(lang, t['title_ru'], t['title_uk'])[:40]}", rewards.task_url(t, chat)),
+                         btn(tx(lang, "✅ Проверить", "✅ Перевірити"), f"tc:{t['id']}", "success")])
+    lines.append(tx(lang, "📝 <b>Задания</b> ", "📝 <b>Завдання</b> ") + progress(finished, len(items)))
+    lines.append("<blockquote>" + "\n".join(items) + "</blockquote>")
+    if note:
+        lines += ["", note]
+    invite = tx(lang, "Ловлю свободные даты DGT с этим ботом — попробуй:", "Ловлю вільні дати DGT із цим ботом — спробуй:")
+    pending = rewards.pending_friends(chat)
+    head = []
+    if pending:
+        head.append([btn(tx(lang, f"🎁 Забрать за друзей · {len(pending)}", f"🎁 Забрати за друзів · {len(pending)}"), "bc", "success")])
+    head.append([url(tx(lang, "📤 Пригласить", "📤 Запросити"), rewards.share_link(chat, invite), "primary"),
+                 copy(tx(lang, "🔗 Копировать", "🔗 Копіювати"), rewards.ref_link(chat))])
+    return "\n".join(lines), ikb(head + rows + [[btn(tx(lang, "🎟 Промокод", "🎟 Промокод"), "pm"), btn("💎 Premium", "pr")],
+                                                 [home_btn(lang)]])
+
+
+def promo_prompt(chat: int) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    return (tx(lang, "🎟 <b>Промокод</b>\n\nПришли код одним сообщением.", "🎟 <b>Промокод</b>\n\nНадішли код одним повідомленням."),
+            ikb([[btn(tx(lang, "Отмена", "Скасувати"), "pr")]]))
+
+
+def promo_result(lang: str, status: str, hours: int = 0) -> str:
+    return {
+        "ok": tx(lang, f"🎉 Промокод принят: +{hours_text(lang, hours)} Premium!", f"🎉 Промокод прийнято: +{hours_text(lang, hours)} Premium!"),
+        "used": tx(lang, "Этот промокод ты уже использовал.", "Цей промокод ти вже використав."),
+        "expired": tx(lang, "😕 Срок промокода истёк.", "😕 Термін промокоду минув."),
+        "limit": tx(lang, "😕 Промокод закончился.", "😕 Промокод закінчився."),
+        "wait": tx(lang, "⏳ Слишком много попыток. Попробуй через 10 минут.", "⏳ Забагато спроб. Спробуй за 10 хвилин."),
+    }.get(status, tx(lang, "😕 Такого промокода нет.", "😕 Такого промокоду немає."))
+
+
+def ref_welcome(lang: str) -> str:
+    return tx(lang, f"🎁 Тебя пригласил друг! Добавь офис — и вы оба получите +{hours_text(lang, store.setting('ref_hours'))} Premium.",
+              f"🎁 Тебе запросив друг! Додай офіс — і ви обидва отримаєте +{hours_text(lang, store.setting('ref_hours'))} Premium.")

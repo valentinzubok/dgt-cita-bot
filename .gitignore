@@ -3,3 +3,4 @@ bot.db
 state.json
 state.tmp
 __pycache__/
+.claude/
