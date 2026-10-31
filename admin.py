@@ -284,7 +284,7 @@ def office_emoji(st: dict, blocked: bool = False) -> str:
         return "⚠️"
     if st.get("days"):
         return "🟢"
-    return {dgt.FULL: "🔴", dgt.NO_AREA: "⚪️", dgt.NOT_CONFIGURED: "⚪️"}.get(st.get("status"), "⏳")
+    return {dgt.FULL: "🔴", dgt.NO_AREA: "⚪️", dgt.NOT_CONFIGURED: "⚪️", dgt.NEEDS_DATA: "🔐"}.get(st.get("status"), "⏳")
 
 
 def offices_view() -> Tuple[str, dict]:
@@ -301,7 +301,7 @@ def offices_view() -> Tuple[str, dict]:
                          f"ad:oc:{cid}:{area}")])
     rows.append([BACK])
     text = ("🏢 <b>Офисы под наблюдением</b> · " + str(len(groups)) + "\n\n<blockquote>"
-            "🟢 есть даты · 🔴 мест нет · ⚪️ нет такой записи\n⚠️ сайт не отвечает · ⛔️ отключён · ⏳ не проверялся</blockquote>\n"
+            "🟢 есть даты · 🔴 мест нет · ⚪️ нет такой записи\n🔐 нужна заявка · ⚠️ сайт не отвечает · ⛔️ отключён · ⏳ не проверялся</blockquote>\n"
             "<i>👥 — сколько человек следят (без пауз).</i>") if groups else "🏢 Пока никто ни на что не подписан."
     return text, ikb(rows)
 
@@ -317,7 +317,7 @@ def office_card(cid: str, area: str, note: str = "") -> Tuple[str, dict]:
         lines.append("⛔️ <b>Проверка отключена администратором</b>")
     if st.get("at"):
         state = f"{st['days']} свободных дней" if st.get("days") else {
-            dgt.FULL: "мест нет", dgt.NO_AREA: "такой записи в офисе нет",
+            dgt.FULL: "мест нет", dgt.NO_AREA: "такой записи в офисе нет", dgt.NEEDS_DATA: "запись через заявку с личными данными",
             dgt.NOT_CONFIGURED: "офис не принимает эту запись"}.get(st.get("status"), st.get("status"))
         lines.append(f"{office_emoji(st)} <b>{state}</b> · проверено {fmt_ts(st['at'])}")
     else:

@@ -296,6 +296,8 @@ def summary(sub: dict, lang: Optional[str] = None) -> Tuple[str, str]:
         return "🟢", days_word(lang, len(days)) + tx(lang, ", с ", ", з ") + short_day(lang, days[0][0])
     if all_days(last):
         return "🟡", tx(lang, "есть даты, но позже фильтра", "є дати, але пізніше фільтра")
+    if any(r.get("status") == dgt.NEEDS_DATA for r in last or []):
+        return "🔐", tx(lang, "запись через заявку на сайте DGT", "запис через заявку на сайті DGT")
     status = last[0]["status"] if last else dgt.UNKNOWN
     return {
         dgt.FULL: ("🔴", tx(lang, "мест нет", "місць немає")),
@@ -451,7 +453,8 @@ def areas(chat: int, cid: str, options: List[Tuple[str, str]]) -> Tuple[str, dic
     rows = []
     for code, label in options:
         hint = area_hint(lang, label)
-        rows.append([btn(f"{area_emoji(label)} {area_label(code, label)}" + (f" — {hint}" if hint else ""),
+        lock = " 🔐" if cats_of(label) == {"cnj"} else ""
+        rows.append([btn(f"{area_emoji(label)} {area_label(code, label)}" + (f" — {hint}" if hint else "") + lock,
                          f"a:{cid}:{code}")])
     rows.append([btn(tx(lang, "⬅️ Офисы", "⬅️ Офіси"), "p:0"), home_btn(lang)])
     return text, ikb(rows)
@@ -500,6 +503,15 @@ def where_block(lang: str, results: Optional[list]) -> str:
     return "<blockquote>" + "\n".join(where) + "</blockquote>"
 
 
+def canje_note(lang: str) -> str:
+    return tx(lang, "<blockquote>DGT изменил порядок canje: сначала заявка на сайте с NIE, датой рождения и страной. "
+                    "DGT проверит права и через несколько дней сообщит результат, только потом можно выбрать дату.</blockquote>\n"
+                    "Личные данные бот не вводит, поэтому этот календарь не видит и о датах canje написать не сможет.",
+              "<blockquote>DGT змінив порядок canje: спершу заявка на сайті з NIE, датою народження й країною. "
+              "DGT перевірить права й за кілька днів повідомить результат, лише потім можна обрати дату.</blockquote>\n"
+              "Особисті дані бот не вводить, тому цей календар не бачить і про дати canje написати не зможе.")
+
+
 def card(sub: dict, note: str = "") -> Tuple[str, dict]:
     if sub.get("booked_date"):
         return booked_card(sub, note)
@@ -520,6 +532,8 @@ def card(sub: dict, note: str = "") -> Tuple[str, dict]:
         if emoji in ("🔴", "🟡", "⏳"):
             lines.append(tx(lang, "Напишу, как только появятся подходящие даты.",
                             "Напишу, щойно з’являться відповідні дати."))
+        elif emoji == "🔐":
+            lines.append(canje_note(lang))
         elif emoji == "⚪️":
             lines.append(tx(lang, "Похоже, в этом офисе такой тип записи называется иначе — выбери его заново.",
                             "Схоже, в цьому офісі такий тип запису називається інакше — обери його знову."))
@@ -812,7 +826,7 @@ def radar_start(chat: int) -> Tuple[str, dict]:
 
 def radar_categories(chat: int, cid: str) -> Tuple[str, dict]:
     lang = lang_of(chat)
-    rows = [[btn(f"{emoji} {tx(lang, ru, uk)}", f"rr:{cid}:{cat}:100")] for cat, (emoji, ru, uk) in CATS.items()]
+    rows = [[btn(f"{emoji} {tx(lang, ru, uk)}", f"rr:{cid}:{cat}:100")] for cat, (emoji, ru, uk) in CATS.items() if cat != "cnj"]
     rows.append([btn(tx(lang, "⬅️ Назад", "⬅️ Назад"), "rd"), home_btn(lang)])
     return (f"📡 <b>{tx(lang, 'Радар', 'Радар')}</b> · 📍 {esc(city(cid))}\n\n"
             + tx(lang, "Какая запись нужна?", "Який запис потрібен?"), ikb(rows))
@@ -851,6 +865,8 @@ def radar_results(chat: int, cid: str, cat: str, km: int, found: list) -> Tuple[
                                  f"a:{centro}:{code}")])
         elif code is None:
             items.append(f"⚪️ {name} — " + tx(lang, "нет такой записи", "немає такого запису"))
+        elif results and any(r.get("status") == dgt.NEEDS_DATA for r in results):
+            items.append(f"🔐 {name} — " + tx(lang, "запись через заявку на сайте DGT", "запис через заявку на сайті DGT"))
         elif results is None:
             items.append(f"⚠️ {name} — " + tx(lang, "сайт не ответил", "сайт не відповів"))
         else:
@@ -1030,8 +1046,9 @@ def ukraine_view(chat: int) -> Tuple[str, dict]:
               "🇺🇦 <b>Для украинцев в Испании</b>\n\n"
               "🪪 <b>Украинские права</b>\n"
               "<blockquote>• Действуют в Испании, пока у тебя есть временная защита — сейчас до <b>4 марта 2027</b>.\n"
-              "• Их можно обменять на испанские (<b>canje</b>) в DGT: выбери офис → «Canjes», "
-              "и я напишу, когда появится запись.\n"
+              "• Обмен на испанские (<b>canje</b>): теперь сначала заявка на сайте DGT с NIE, датой рождения и страной. "
+              "Через несколько дней DGT сообщит результат, и только потом можно выбрать дату. "
+              "Бот вводить личные данные не может, поэтому даты canje не отслеживает.\n"
               "• С TIE обмен можно делать сразу, с резолюцией о защите — через 6 месяцев после въезда или выдачи. "
               "Присяжный перевод не нужен.</blockquote>\n"
               "📄 <b>Временная защита и TIE</b>\n"
@@ -1047,8 +1064,9 @@ def ukraine_view(chat: int) -> Tuple[str, dict]:
               "🇺🇦 <b>Для українців в Іспанії</b>\n\n"
               "🪪 <b>Українські права</b>\n"
               "<blockquote>• Діють в Іспанії, поки в тебе є тимчасовий захист — зараз до <b>4 березня 2027</b>.\n"
-              "• Їх можна обміняти на іспанські (<b>canje</b>) у DGT: обери офіс → «Canjes», "
-              "і я напишу, щойно з’явиться запис.\n"
+              "• Обмін на іспанські (<b>canje</b>): тепер спершу заявка на сайті DGT з NIE, датою народження й країною. "
+              "За кілька днів DGT повідомить результат, і лише потім можна обрати дату. "
+              "Бот не може вводити особисті дані, тому дати canje не відстежує.\n"
               "• З TIE обмін можна робити одразу, з резолюцією про захист — через 6 місяців після в’їзду або видачі. "
               "Присяжний переклад не потрібен.</blockquote>\n"
               "📄 <b>Тимчасовий захист і TIE</b>\n"
@@ -1062,7 +1080,6 @@ def ukraine_view(chat: int) -> Tuple[str, dict]:
               "України або звільнення від нього.</blockquote>\n"
               "<i>Інформація на жовтень 2026, перед візитом звіряйся з офіційними сайтами.</i>")
     return text, ikb([
-        [btn(tx(lang, "🔁 Следить за записью на canje", "🔁 Стежити за записом на canje"), "p:0")],
         [btn(tx(lang, "🛂 Записи на TIE и документы", "🛂 Записи на TIE і документи"), "dc")],
         [url(tx(lang, "🪪 Canje прав — DGT", "🪪 Canje прав — DGT"), UA_CANJE), url("🌐 Ucrania Urgente", UA_GUIDE)],
         [home_btn(lang)],

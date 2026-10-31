@@ -357,6 +357,31 @@ class Limits(unittest.TestCase):
         self.assertTrue(actions.set_filter(a, 14))
 
 
+class Catalog(unittest.TestCase):
+    def test_rows_with_extra_classes(self):
+        page = ("""<form id="tramites" name="tramites">
+        <div class="row border-bottom usuarioTramite Ciudadano"><a class="enlace me-2" title="Canje de permisos" href="#">x</a>
+        <a onclick="return myfaces.oam.submitForm('tramites','tramites:items:0:j_id_1u');">Pedir cita</a></div>
+        <div class="row usuarioTramite Ciudadano"><a class="enlace" title="Otro" href="#">y</a>
+        <a onclick="return myfaces.oam.submitForm('tramites','tramites:items:1:j_id_1u');">Pedir cita</a></div></form>""")
+        self.assertEqual(dgt._tramites(page), [("tramites:items:0:j_id_1u", "Canje de permisos"), ("tramites:items:1:j_id_1u", "Otro")])
+
+
+class CanjeForm(unittest.TestCase):
+    def test_needs_personal_data(self):
+        result = dgt._read_calendar(None, '<form action="/WEB_CITE_CONSULTA/paginas/canjes/inicio.faces">', "Canje de permisos")
+        self.assertEqual(result.status, dgt.NEEDS_DATA)
+
+    def test_card_explains_it(self):
+        user(1300)
+        sub, _ = store.add_sub(1300, "486", "CNJ", "Canjes")
+        store.update_sub(sub["id"], last=[{"status": dgt.NEEDS_DATA, "tramite": "Canje", "days": [], "hours": [], "address": "", "schedule": ""}],
+                         checked_at=int(time.time()))
+        fresh = store.get_sub(sub["id"])
+        self.assertEqual(views.summary(fresh)[0], "🔐")
+        self.assertIn("NIE", views.card(fresh)[0])
+
+
 class Abuse(unittest.TestCase):
     """Находки аудита: повторные награды через удаление аккаунта, обход лимита через запись на визит, права админа."""
 

@@ -44,6 +44,7 @@ AVAILABLE = "available"            # в календаре есть свобод
 FULL = "full"                      # «sin capacidad de citación»
 NOT_CONFIGURED = "not_configured"  # офис не принимает этот тип записи
 NO_AREA = "no_area"                # область недоступна в этом офисе
+NEEDS_DATA = "needs_data"          # календарь открывается только после заявки с личными данными (canje)
 UNKNOWN = "unknown"                # страница не распознана
 
 
@@ -170,7 +171,7 @@ def _tramites(catalog: str) -> List[Tuple[str, str]]:
     """[(id ссылки JSF, название)] из каталога."""
     form = catalog[catalog.find('<form id="tramites"'):]
     out = []
-    for block in form.split('class="row usuarioTramite')[1:]:
+    for block in re.split(r'class="row[^"]*usuarioTramite', form)[1:]:
         link = re.search(r"submitForm\('tramites','([^']+)'\)", block)
         if not link:
             continue
@@ -218,6 +219,8 @@ def _office_info(t: str) -> Tuple[str, str]:
 
 
 def _read_calendar(b: _Browser, t: str, tramite: str) -> Result:
+    if "canjes/inicio.faces" in t:
+        return Result(NEEDS_DATA, tramite)
     if "PF('sinCapacidad').show()" in t:
         return Result(FULL, tramite)
     if "PF('noConfigurado').show()" in t:
