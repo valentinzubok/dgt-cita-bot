@@ -38,7 +38,8 @@ TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=u
 FILES = {"/app": "webapp/index.html", "/app/app.js": "webapp/app.js", "/app/style.css": "webapp/style.css",
          "/app/icon.png": "assets/avatar.png", "/app/mark.svg": "assets/mark.svg", "/static/banner.jpg": "assets/banner.jpg",
          "/static/banner_premium.jpg": "assets/banner_premium.jpg", "/static/banner_bonus.jpg": "assets/banner_bonus.jpg",
-         "/static/banner_radar.jpg": "assets/banner_radar.jpg", "/static/banner_admin.jpg": "assets/banner_admin.jpg"}
+         "/static/banner_radar.jpg": "assets/banner_radar.jpg", "/static/banner_admin.jpg": "assets/banner_admin.jpg",
+         "/static/banner_docs.jpg": "assets/banner_docs.jpg"}
 _cache: Dict[str, Tuple[bytes, bytes, str]] = {}
 _hits: Dict[int, deque] = {}
 _hits_lock = threading.Lock()

@@ -25,6 +25,7 @@ import dgt  # noqa: E402
 import premium  # noqa: E402
 import radar  # noqa: E402
 import rewards  # noqa: E402
+import signals  # noqa: E402
 import store  # noqa: E402
 import tg  # noqa: E402
 import views  # noqa: E402
@@ -426,6 +427,55 @@ class Abuse(unittest.TestCase):
         store.set_chat(9052, role="pending")
         admin.user_action(9050, 1, "ar", 9052)
         self.assertEqual(store.get_chat(9052).get("role"), "banned")
+
+
+class Signals(unittest.TestCase):
+    def setUp(self):
+        for table in (store._sig_subs, store._signals, store._sig_votes):
+            table.clear()
+        for chat in (1200, 1201, 1202, 1203):
+            user(chat)
+
+    def test_free_limit(self):
+        self.assertEqual(signals.subscribe(1200, "28", "ukr"), "ok")
+        self.assertEqual(signals.subscribe(1200, "28", "ukr"), "exists")
+        self.assertEqual(signals.subscribe(1200, "08", "tie"), "limit")
+        self.assertEqual(signals.subscribe(1200, "99", "tie"), "bad")
+        self.assertEqual(signals.subscribe(1200, "28", "xxx"), "bad")
+
+    def test_report_reaches_others_and_merges(self):
+        signals.subscribe(1200, "28", "ukr")
+        signals.subscribe(1201, "28", "ukr")
+        status, sig = signals.report(1200, "28", "ukr")
+        self.assertEqual(status, "ok")
+        self.assertEqual(signals.audience(sig), [1201])
+        self.assertEqual(signals.report(1201, "28", "ukr"), ("merged", None))
+        self.assertEqual(store.get_signal(sig["id"])["ok_votes"], 1)
+
+    def test_vote_once_and_not_own(self):
+        _, sig = signals.report(1200, "46", "nie")
+        self.assertFalse(store.signal_vote(sig["id"], 1200, True))
+        self.assertTrue(store.signal_vote(sig["id"], 1201, False))
+        self.assertFalse(store.signal_vote(sig["id"], 1201, False))
+
+    def test_refuted_reporter_is_muted(self):
+        for province in ("01", "02", "03"):
+            _, sig = signals.report(1200, province, "nie")
+            store.signal_vote(sig["id"], 1201, False)
+            store.signal_vote(sig["id"], 1202, False)
+        self.assertEqual(signals.report(1200, "04", "nie"), ("muted", None))
+
+    def test_daily_limit(self):
+        for province in ("01", "02", "03", "04", "05"):
+            self.assertEqual(signals.report(1203, province, "tie")[0], "ok")
+        self.assertEqual(signals.report(1203, "06", "tie"), ("daily", None))
+
+    def test_delete_clears_personal_data(self):
+        signals.subscribe(1200, "28", "ukr")
+        _, sig = signals.report(1200, "28", "ukr")
+        store.delete_chat(1200)
+        self.assertEqual(signals.subs_of(1200), [])
+        self.assertEqual(store.get_signal(sig["id"])["chat"], 0)
 
 
 class Outage(unittest.TestCase):

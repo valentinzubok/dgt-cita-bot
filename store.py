@@ -102,6 +102,24 @@ SCHEMA = [
         chat BIGINT NOT NULL,
         created_at BIGINT NOT NULL,
         PRIMARY KEY (task, chat))""",
+    """CREATE TABLE IF NOT EXISTS signal_subs (
+        chat BIGINT NOT NULL,
+        province TEXT NOT NULL,
+        doc TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        PRIMARY KEY (chat, province, doc))""",
+    f"""CREATE TABLE IF NOT EXISTS signals (
+        id {_PK},
+        chat BIGINT NOT NULL,
+        province TEXT NOT NULL,
+        doc TEXT NOT NULL,
+        ok_votes INTEGER NOT NULL DEFAULT 0,
+        no_votes INTEGER NOT NULL DEFAULT 0,
+        created_at BIGINT NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS signal_votes (
+        sig BIGINT NOT NULL,
+        chat BIGINT NOT NULL,
+        PRIMARY KEY (sig, chat))""",
     """CREATE TABLE IF NOT EXISTS reward_ledger (
         key TEXT PRIMARY KEY,
         created_at BIGINT NOT NULL)""",
@@ -211,6 +229,9 @@ _tasks: Dict[int, dict] = {}
 _done: Set[Tuple[str, int]] = set()
 _promos: Dict[str, dict] = {}
 _promo_uses: Set[Tuple[str, int]] = set()
+_sig_subs: Set[Tuple[int, str, str]] = set()
+_signals: Dict[int, dict] = {}  # сигналы за последние 30 дней
+_sig_votes: Set[Tuple[int, int]] = set()
 _ledger: Set[str] = set()  # хеши наград удалённых аккаунтов: удаление данных не даёт получить их заново
 _campaigns: Dict[int, dict] = {}
 _ad_clicks: Set[Tuple[int, int]] = set()
@@ -382,6 +403,12 @@ def init() -> None:
         _promos.update({r["code"]: r for r in q("SELECT * FROM promos")})
         _promo_uses.clear()
         _promo_uses.update((r["code"], r["chat"]) for r in q("SELECT code, chat FROM promo_uses"))
+        _sig_subs.clear()
+        _sig_subs.update((r["chat"], r["province"], r["doc"]) for r in q("SELECT chat, province, doc FROM signal_subs"))
+        _signals.clear()
+        _signals.update({r["id"]: r for r in q("SELECT * FROM signals WHERE created_at >= ?", (int(time.time()) - 30 * 86400,))})
+        _sig_votes.clear()
+        _sig_votes.update((r["sig"], r["chat"]) for r in q("SELECT sig, chat FROM signal_votes"))
         _ledger.clear()
         _ledger.update(r["key"] for r in q("SELECT key FROM reward_ledger"))
         _campaigns.clear()
@@ -515,6 +542,16 @@ def delete_chat(chat: int) -> None:
             _promo_uses.discard(key)
             hashes.add(_ledger_key("promo", key[0], chat))
         _ledger.update(hashes)
+        for key in [k for k in _sig_subs if k[0] == chat]:
+            _sig_subs.discard(key)
+        for key in [k for k in _sig_votes if k[1] == chat]:
+            _sig_votes.discard(key)
+        for sig in _signals.values():
+            if sig["chat"] == chat:
+                sig["chat"] = 0
+    write("DELETE FROM signal_subs WHERE chat = ?", (chat,))
+    write("DELETE FROM signal_votes WHERE chat = ?", (chat,))
+    write("UPDATE signals SET chat = 0 WHERE chat = ?", (chat,))
     now = int(time.time())
     for key in hashes:
         write("INSERT INTO reward_ledger (key, created_at) VALUES (?, ?) ON CONFLICT (key) DO NOTHING", (key, now))
@@ -828,6 +865,77 @@ def claim_task(task: str, chat: int) -> bool:
 def task_count(task: str) -> int:
     with _mem:
         return sum(1 for t, _ in _done if t == task)
+
+
+# ---------- сигналы о документах ----------
+
+def signal_subs_of(chat: int) -> List[Tuple[str, str]]:
+    with _mem:
+        return sorted((p, d) for c, p, d in _sig_subs if c == chat)
+
+
+def signal_audience(province: str, doc: str) -> List[int]:
+    with _mem:
+        return [c for c, p, d in _sig_subs if p == province and d == doc]
+
+
+def signal_sub_count() -> int:
+    with _mem:
+        return len(_sig_subs)
+
+
+def add_signal_sub(chat: int, province: str, doc: str) -> None:
+    with _mem:
+        _sig_subs.add((chat, province, doc))
+    write("INSERT INTO signal_subs (chat, province, doc, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (chat, province, doc) DO NOTHING",
+          (chat, province, doc, int(time.time())))
+
+
+def del_signal_sub(chat: int, province: str, doc: str) -> None:
+    with _mem:
+        _sig_subs.discard((chat, province, doc))
+    write("DELETE FROM signal_subs WHERE chat = ? AND province = ? AND doc = ?", (chat, province, doc))
+
+
+def add_signal(chat: int, province: str, doc: str) -> dict:
+    flush()
+    now = int(time.time())
+    row = q1("INSERT INTO signals (chat, province, doc, created_at) VALUES (?, ?, ?, ?) RETURNING id", (chat, province, doc, now))
+    sig = {"id": row["id"], "chat": chat, "province": province, "doc": doc, "ok_votes": 0, "no_votes": 0, "created_at": now}
+    with _mem:
+        _signals[sig["id"]] = sig
+    return dict(sig)
+
+
+def get_signal(sid: int) -> Optional[dict]:
+    with _mem:
+        sig = _signals.get(sid)
+        return dict(sig) if sig else None
+
+
+def recent_signals(province: str, doc: str, since: float) -> List[dict]:
+    with _mem:
+        return sorted((dict(s) for s in _signals.values() if s["province"] == province and s["doc"] == doc and s["created_at"] >= since),
+                      key=lambda s: -s["created_at"])
+
+
+def signals_by(chat: int, since: float) -> List[dict]:
+    with _mem:
+        return [dict(s) for s in _signals.values() if s["chat"] == chat and s["created_at"] >= since]
+
+
+def signal_vote(sid: int, chat: int, ok: bool) -> bool:
+    """Один человек — один голос, за свой сигнал голосовать нельзя."""
+    field = "ok_votes" if ok else "no_votes"
+    with _mem:
+        sig = _signals.get(sid)
+        if not sig or sig["chat"] == chat or (sid, chat) in _sig_votes:
+            return False
+        _sig_votes.add((sid, chat))
+        sig[field] += 1
+    write("INSERT INTO signal_votes (sig, chat) VALUES (?, ?) ON CONFLICT (sig, chat) DO NOTHING", (sid, chat))
+    write(f"UPDATE signals SET {field} = {field} + 1 WHERE id = ?", (sid,))
+    return True
 
 
 # ---------- промокоды ----------

@@ -14,6 +14,7 @@ import config
 import dgt
 import premium
 import rewards
+import signals
 import store
 from tg import btn, copy, ikb, url, webapp
 
@@ -398,7 +399,7 @@ def dashboard(chat: int, name: str = "", next_check: Optional[int] = None, note:
     if paid and premium.app_url():
         rows.append([webapp(tx(lang, "📱 Приложение", "📱 Застосунок"), premium.app_url(), "primary")])
     rows.append([btn(tx(lang, "⚙️ Настройки", "⚙️ Налаштування"), "st"), btn(tx(lang, "❓ Помощь", "❓ Допомога"), "hp")])
-    rows.append([btn(tx(lang, "🇺🇦 Для украинцев", "🇺🇦 Для українців"), "ua")])
+    rows.append([btn(tx(lang, "🛂 Документы", "🛂 Документи"), "dc"), btn(tx(lang, "🇺🇦 Для украинцев", "🇺🇦 Для українців"), "ua")])
     if is_admin(chat):
         rows.append([btn("🛠 Админ-панель", "ad")])
     return "\n".join(lines), ikb(rows)
@@ -902,6 +903,7 @@ def help_view(chat: int) -> Tuple[str, dict]:
               "присылаю уведомление с датами и временем.\n\n"
               "🎨 <b>Цвета</b>\n<blockquote>🟢 много свободных мест\n🟡 занято 33–66%\n🔴 почти всё занято</blockquote>\n"
               "🧰 <b>Что умею</b>\n<blockquote>📡 Радар: ближайший офис, где запись раньше всего\n"
+              "🛂 Сигналы от людей о записях на TIE, NIE и паспорт\n"
               "🗓 Календарь со свободным временем\n"
               "✅ «Я записался»: напомню о визите и подскажу, что взять\n"
               "📅 Только даты раньше нужной, ⏸ пауза, 📊 история\n"
@@ -915,6 +917,7 @@ def help_view(chat: int) -> Tuple[str, dict]:
               "надсилаю сповіщення з датами й часом.\n\n"
               "🎨 <b>Кольори</b>\n<blockquote>🟢 багато вільних місць\n🟡 зайнято 33–66%\n🔴 майже все зайнято</blockquote>\n"
               "🧰 <b>Що вмію</b>\n<blockquote>📡 Радар: найближчий офіс, де запис найшвидше\n"
+              "🛂 Сигнали від людей про записи на TIE, NIE і паспорт\n"
               "🗓 Календар із вільним часом\n"
               "✅ «Я записався»: нагадаю про візит і підкажу, що взяти\n"
               "📅 Лише дати раніше потрібної, ⏸ пауза, 📊 історія\n"
@@ -925,6 +928,100 @@ def help_view(chat: int) -> Tuple[str, dict]:
               "<i>Записуєшся ти сам, я лише повідомляю про місця. Бот не пов’язаний з DGT.</i>")
     return text, ikb([[btn(tx(lang, "🇺🇦 Для украинцев", "🇺🇦 Для українців"), "ua"),
                        btn(tx(lang, "📄 Условия", "📄 Умови"), "tm")], [home_btn(lang)]])
+
+
+# ---------- сигналы о документах ----------
+
+def doc_title(lang: str, doc: str) -> str:
+    emoji, ru, uk = signals.DOCS[doc]
+    return f"{emoji} {tx(lang, ru, uk)}"
+
+
+def docs_view(chat: int, note: str = "") -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    mine = signals.subs_of(chat)
+    lines = [tx(lang, "🛂 <b>Документы</b> · сигналы от людей", "🛂 <b>Документи</b> · сигнали від людей"), "",
+             tx(lang, "Записи на TIE, NIE, паспорт и в консульство закрыты от автоматических проверок, поэтому бот их не смотрит. "
+                      "Места замечают сами пользователи: один увидел запись и нажал кнопку, остальные сразу получили сигнал.",
+                "Записи на TIE, NIE, паспорт і в консульство закриті від автоматичних перевірок, тому бот їх не дивиться. "
+                "Місця помічають самі користувачі: один побачив запис і натиснув кнопку, решта одразу отримали сигнал."), ""]
+    if mine:
+        items = []
+        for province, doc in mine:
+            hour = signals.best_hour(province, doc)
+            items.append(f"{doc_title(lang, doc)} · <b>{esc(signals.PROVINCES[province])}</b>"
+                         + (tx(lang, f"\n<i>чаще всего около {hour}:00</i>", f"\n<i>найчастіше близько {hour}:00</i>") if hour is not None else ""))
+        lines.append(tx(lang, "🔔 <b>Мои сигналы</b> · ", "🔔 <b>Мої сигнали</b> · ") + f"{len(mine)}/{signals.limit(chat)}")
+        lines.append("<blockquote>" + "\n".join(items) + "</blockquote>")
+    lines.append(tx(lang, "<i>Сигналы присылают люди, бот их не проверяет. Запись бесплатна, никому не плати за неё.</i>",
+                    "<i>Сигнали надсилають люди, бот їх не перевіряє. Запис безкоштовний, нікому за нього не плати.</i>"))
+    if note:
+        lines += ["", note]
+    rows = [[btn(tx(lang, "🟢 Я вижу свободные места", "🟢 Я бачу вільні місця"), "dp:r:0", "success")],
+            [btn(tx(lang, "➕ Следить за записью", "➕ Стежити за записом"), "dp:s:0", "primary")]]
+    for province, doc in mine:
+        rows.append([btn(f"🗑 {signals.DOCS[doc][0]} {signals.PROVINCES[province]}", f"dx:{province}:{doc}")])
+    rows.append([url(tx(lang, "📝 Сайт записи Extranjería", "📝 Сайт запису Extranjería"), signals.ICP_URL)])
+    rows.append([btn(tx(lang, "🇺🇦 Для украинцев", "🇺🇦 Для українців"), "ua"), home_btn(lang)])
+    return "\n".join(lines), ikb(rows)
+
+
+def doc_provinces(chat: int, act: str, page: int = 0) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    ids = sorted(signals.PROVINCES, key=lambda c: fold(signals.PROVINCES[c]))
+    pages = math.ceil(len(ids) / PAGE)
+    page %= pages
+    chunk = ids[page * PAGE:(page + 1) * PAGE]
+    rows = [[btn(signals.PROVINCES[c], f"dt:{act}:{c}") for c in chunk[i:i + 2]] for i in range(0, len(chunk), 2)]
+    rows.append([btn("◀️", f"dp:{act}:{page - 1}"), btn(f"{page + 1} / {pages}", "noop"), btn("▶️", f"dp:{act}:{page + 1}")])
+    rows.append([btn(tx(lang, "⬅️ Документы", "⬅️ Документи"), "dc"), home_btn(lang)])
+    head = (tx(lang, "🟢 <b>Где ты видишь места?</b>", "🟢 <b>Де ти бачиш місця?</b>") if act == "r"
+            else tx(lang, "➕ <b>Выбери провинцию</b>", "➕ <b>Обери провінцію</b>"))
+    return head + tx(lang, " · шаг 1 из 2", " · крок 1 з 2"), ikb(rows)
+
+
+def doc_types(chat: int, act: str, province: str) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    rows = [[btn(doc_title(lang, doc), f"dd:{act}:{province}:{doc}")] for doc in signals.DOCS]
+    rows.append([btn(tx(lang, "⬅️ Провинции", "⬅️ Провінції"), f"dp:{act}:0"), home_btn(lang)])
+    return (f"📍 <b>{esc(signals.PROVINCES[province])}</b> · " + tx(lang, "шаг 2 из 2", "крок 2 з 2") + "\n\n"
+            + tx(lang, "Какой документ?", "Який документ?"), ikb(rows))
+
+
+def doc_confirm(chat: int, province: str, doc: str) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    return (tx(lang, "🟢 <b>Ты сейчас видишь свободные места?</b>\n", "🟢 <b>Ти зараз бачиш вільні місця?</b>\n")
+            + f"{doc_title(lang, doc)} · <b>{esc(signals.PROVINCES[province])}</b>\n\n"
+            + tx(lang, "Я сразу сообщу всем, кто их ждёт. Ложные сигналы отключают эту кнопку.",
+                 "Я одразу повідомлю всіх, хто на них чекає. Хибні сигнали вимикають цю кнопку."),
+            ikb([[btn(tx(lang, "✅ Да, вижу", "✅ Так, бачу"), f"dr:{province}:{doc}", "success"),
+                  btn(tx(lang, "Отмена", "Скасувати"), "dc")]]))
+
+
+def signal_result(lang: str, status: str, sent: int = 0) -> str:
+    return {
+        "ok": tx(lang, f"✅ Спасибо! Сигнал получат: <b>{sent}</b>.", f"✅ Дякую! Сигнал отримають: <b>{sent}</b>."),
+        "merged": tx(lang, "✅ Спасибо! Об этом уже сообщили, твой голос учтён.", "✅ Дякую! Про це вже повідомили, твій голос враховано."),
+        "daily": tx(lang, "⏳ На сегодня сигналов достаточно, спасибо!", "⏳ На сьогодні сигналів досить, дякую!"),
+        "muted": tx(lang, "🔕 Твои сигналы часто не подтверждались, поэтому кнопка пока отключена.",
+                    "🔕 Твої сигнали часто не підтверджувалися, тому кнопку поки вимкнено."),
+    }.get(status, "")
+
+
+def signal_alert(chat: int, sig: dict, voted: bool = False) -> Tuple[str, dict]:
+    lang, province, doc = lang_of(chat), sig["province"], sig["doc"]
+    text = (tx(lang, "🟢 <b>Сигнал о свободных местах</b>\n", "🟢 <b>Сигнал про вільні місця</b>\n")
+            + f"{doc_title(lang, doc)} · <b>{esc(signals.PROVINCES[province])}</b>\n\n"
+            + tx(lang, "Пользователь только что увидел запись. Бот этого не проверял, места быстро исчезают.",
+                 "Користувач щойно побачив запис. Бот цього не перевіряв, місця швидко зникають."))
+    rows = []
+    if doc in signals.ICP_DOCS:
+        rows.append([url(tx(lang, "📝 Открыть сайт записи", "📝 Відкрити сайт запису"), signals.ICP_URL, "primary")])
+    if not voted:
+        rows.append([btn(tx(lang, "✅ Тоже вижу", "✅ Теж бачу"), f"dv:{sig['id']}:1", "success"),
+                     btn(tx(lang, "❌ Уже нет", "❌ Вже немає"), f"dv:{sig['id']}:0")])
+    rows.append([btn(tx(lang, "✖️ Скрыть", "✖️ Сховати"), "hide")])
+    return text, ikb(rows)
 
 
 def ukraine_view(chat: int) -> Tuple[str, dict]:
@@ -940,12 +1037,13 @@ def ukraine_view(chat: int) -> Tuple[str, dict]:
               "📄 <b>Временная защита и TIE</b>\n"
               "<blockquote>• Все TIE по временной защите продлены автоматически до 4 марта 2027 "
               "(Orden INT/96/2026) — никуда идти не нужно.\n"
-              "• Еврокомиссия предложила продлить защиту до 4 марта 2028 — пока не утверждено.\n"
+              "• ЕС продлил временную защиту до <b>4 марта 2028</b> (решение 2026/1912). Срок TIE после 4 марта 2027 "
+              "зависит от новой испанской нормы, следи за официальными сайтами.\n"
               "• Новая заявка: центры CREADE по телефону — Pozuelo (Madrid) +34 666 800 194, "
               "Málaga +34 628 216 478, Barcelona +34 93 238 21 99; в других провинциях — в полиции.\n"
               "• С августа 2026 для новой защиты нужно подтвердить исполнение воинской обязанности "
               "Украины или освобождение от неё.</blockquote>\n"
-              "<i>Информация на сентябрь 2026 — перед визитом сверяйся с официальными сайтами.</i>",
+              "<i>Информация на октябрь 2026, перед визитом сверяйся с официальными сайтами.</i>",
               "🇺🇦 <b>Для українців в Іспанії</b>\n\n"
               "🪪 <b>Українські права</b>\n"
               "<blockquote>• Діють в Іспанії, поки в тебе є тимчасовий захист — зараз до <b>4 березня 2027</b>.\n"
@@ -956,14 +1054,16 @@ def ukraine_view(chat: int) -> Tuple[str, dict]:
               "📄 <b>Тимчасовий захист і TIE</b>\n"
               "<blockquote>• Усі TIE за тимчасовим захистом продовжено автоматично до 4 березня 2027 "
               "(Orden INT/96/2026) — нікуди йти не треба.\n"
-              "• Єврокомісія запропонувала продовжити захист до 4 березня 2028 — поки не затверджено.\n"
+              "• ЄС продовжив тимчасовий захист до <b>4 березня 2028</b> (рішення 2026/1912). Строк TIE після 4 березня 2027 "
+              "залежить від нової іспанської норми, стеж за офіційними сайтами.\n"
               "• Нова заява: центри CREADE за телефоном — Pozuelo (Madrid) +34 666 800 194, "
               "Málaga +34 628 216 478, Barcelona +34 93 238 21 99; в інших провінціях — у поліції.\n"
               "• З серпня 2026 для нового захисту треба підтвердити виконання військового обов’язку "
               "України або звільнення від нього.</blockquote>\n"
-              "<i>Інформація на вересень 2026 — перед візитом звіряйся з офіційними сайтами.</i>")
+              "<i>Інформація на жовтень 2026, перед візитом звіряйся з офіційними сайтами.</i>")
     return text, ikb([
         [btn(tx(lang, "🔁 Следить за записью на canje", "🔁 Стежити за записом на canje"), "p:0")],
+        [btn(tx(lang, "🛂 Записи на TIE и документы", "🛂 Записи на TIE і документи"), "dc")],
         [url(tx(lang, "🪪 Canje прав — DGT", "🪪 Canje прав — DGT"), UA_CANJE), url("🌐 Ucrania Urgente", UA_GUIDE)],
         [home_btn(lang)],
     ])
@@ -1071,6 +1171,7 @@ def premium_view(chat: int, note: str = "") -> Tuple[str, dict]:
         f"⚡️ Проверка: {slow} → <b>{fast} мин</b>\n"
         "📡 Радар: 1 в день → <b>без лимита</b>\n"
         "📏 Радиус радара: 100 → <b>250 км</b>\n"
+        f"🛂 Сигналы о документах: {signals.FREE_SUBS} → <b>{signals.TOP_SUBS}</b>\n"
         "🚀 Очередь проверок: <b>первым</b>\n"
         "📱 Мини-приложение: <b>есть</b>\n"
         "🔕 Реклама: <b>нет</b>",
@@ -1078,6 +1179,7 @@ def premium_view(chat: int, note: str = "") -> Tuple[str, dict]:
         f"⚡️ Перевірка: {slow} → <b>{fast} хв</b>\n"
         "📡 Радар: 1 на день → <b>без ліміту</b>\n"
         "📏 Радіус радара: 100 → <b>250 км</b>\n"
+        f"🛂 Сигнали про документи: {signals.FREE_SUBS} → <b>{signals.TOP_SUBS}</b>\n"
         "🚀 Черга перевірок: <b>першим</b>\n"
         "📱 Міні-застосунок: <b>є</b>\n"
         "🔕 Реклама: <b>немає</b>") + "</blockquote>")

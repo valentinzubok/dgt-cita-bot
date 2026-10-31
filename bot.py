@@ -28,6 +28,7 @@ import dgt
 import premium
 import radar
 import rewards
+import signals
 import store
 import tg
 import views
@@ -320,6 +321,8 @@ def on_message(msg: dict) -> None:
         tg.show(chat, *views.premium_view(chat), banner=views.banner("premium"))
     elif cmd == "/bonus":
         tg.show(chat, *views.bonus_view(chat), banner=views.banner("bonus"))
+    elif cmd == "/docs":
+        tg.show(chat, *views.docs_view(chat), banner=views.banner("docs"))
     elif cmd == "/promo":
         if arg.strip():
             status, hours = rewards.apply_promo(chat, arg.strip())
@@ -542,6 +545,8 @@ def route_callback(cb: dict, chat: int, mid: int, data: str) -> Tuple[Optional[s
         home(chat, mid, tx(lang, "🗑 Все подписки удалены.", "🗑 Усі підписки видалено."))
     elif kind in ("s", "r", "h", "f", "fs", "z", "x", "xx", "k", "d", "rs", "bk", "bd", "bt", "bo", "ub"):
         return sub_action(chat, mid, kind, rest, lang, token)
+    elif kind in ("dc", "dp", "dt", "dd", "dr", "dx", "dv"):
+        return docs_action(chat, mid, kind, rest, lang)
     return None, False
 
 
@@ -559,6 +564,40 @@ def check_task(chat: int, mid: int, tid: int, lang: str) -> str:
         "no": tx(lang, "Пока не вижу выполнения. Сделай задание и нажми ещё раз.", "Поки не бачу виконання. Зроби завдання й натисни ще раз."),
         "bot": tx(lang, "Не могу проверить, напиши администратору", "Не можу перевірити, напиши адміністратору"),
     }.get(status, tx(lang, "Задание больше не действует", "Завдання більше не діє"))
+
+
+def docs_action(chat: int, mid: int, kind: str, rest: str, lang: str) -> Tuple[Optional[str], bool]:
+    """Сигналы о документах. dc — раздел; dp/dt/dd — выбор (s — следить, r — сообщить); dr, dx, dv — действия."""
+    parts = rest.split(":")
+    screen = lambda note="": tg.show(chat, *views.docs_view(chat, note), mid=mid, banner=views.banner("docs"))  # noqa: E731
+    if kind == "dc":
+        screen()
+    elif kind == "dp" and len(parts) == 2 and parts[0] in ("s", "r") and re.fullmatch(r"-?\d{1,3}", parts[1]):
+        tg.show(chat, *views.doc_provinces(chat, parts[0], int(parts[1])), mid=mid)
+    elif kind == "dt" and len(parts) == 2 and parts[0] in ("s", "r") and parts[1] in signals.PROVINCES:
+        tg.show(chat, *views.doc_types(chat, parts[0], parts[1]), mid=mid)
+    elif kind == "dd" and len(parts) == 3 and parts[0] in ("s", "r") and signals.valid(parts[1], parts[2]):
+        if parts[0] == "r":
+            tg.show(chat, *views.doc_confirm(chat, parts[1], parts[2]), mid=mid)
+            return None, False
+        status = signals.subscribe(chat, parts[1], parts[2])
+        if status == "limit":
+            return tx(lang, f"💎 Бесплатно — {signals.FREE_SUBS} сигнал, с Premium — до {signals.TOP_SUBS}",
+                      f"💎 Безкоштовно — {signals.FREE_SUBS} сигнал, із Premium — до {signals.TOP_SUBS}"), True
+        screen(tx(lang, "✅ Готово! Напишу, как только кто-то заметит места.", "✅ Готово! Напишу, щойно хтось помітить місця."))
+    elif kind == "dr" and len(parts) == 2 and signals.valid(parts[0], parts[1]):
+        status, sent = actions.report_signal(chat, parts[0], parts[1])
+        screen(views.signal_result(lang, status, sent))
+    elif kind == "dx" and len(parts) == 2:
+        store.del_signal_sub(chat, parts[0], parts[1])
+        screen()
+    elif kind == "dv" and len(parts) == 2 and parts[0].isdigit() and parts[1] in ("0", "1"):
+        sig = store.get_signal(int(parts[0]))
+        if not sig or not store.signal_vote(sig["id"], chat, parts[1] == "1"):
+            return tx(lang, "Этот сигнал уже закрыт", "Цей сигнал уже закрито"), False
+        tg.edit(chat, mid, *views.signal_alert(chat, sig, voted=True))
+        return tx(lang, "Спасибо!", "Дякую!"), False
+    return None, False
 
 
 def sub_action(chat: int, mid: int, kind: str, rest: str, lang: str, token: int) -> Tuple[Optional[str], bool]:
@@ -709,11 +748,13 @@ def enqueue(update: dict) -> None:
 
 COMMANDS = {
     "ru": [("menu", "🏠 Главное меню"), ("add", "➕ Добавить офис"), ("radar", "📡 Радар — где раньше"),
-           ("list", "📋 Мои офисы"), ("premium", "💎 Premium"), ("bonus", "🎁 Бонусы"), ("ua", "🇺🇦 Для украинцев"),
+           ("list", "📋 Мои офисы"), ("docs", "🛂 Документы: TIE, NIE, паспорт"), ("premium", "💎 Premium"), ("bonus", "🎁 Бонусы"),
+           ("ua", "🇺🇦 Для украинцев"),
            ("lang", "🌐 Язык / Мова"), ("help", "❓ Как это работает"), ("terms", "📄 Условия"),
            ("paysupport", "💳 Поддержка по оплате"), ("privacy", "🔒 Мои данные")],
     "uk": [("menu", "🏠 Головне меню"), ("add", "➕ Додати офіс"), ("radar", "📡 Радар — де швидше"),
-           ("list", "📋 Мої офіси"), ("premium", "💎 Premium"), ("bonus", "🎁 Бонуси"), ("ua", "🇺🇦 Для українців"),
+           ("list", "📋 Мої офіси"), ("docs", "🛂 Документи: TIE, NIE, паспорт"), ("premium", "💎 Premium"), ("bonus", "🎁 Бонуси"),
+           ("ua", "🇺🇦 Для українців"),
            ("lang", "🌐 Мова / Язык"), ("help", "❓ Як це працює"), ("terms", "📄 Умови"),
            ("paysupport", "💳 Підтримка щодо оплати"), ("privacy", "🔒 Мої дані")],
 }

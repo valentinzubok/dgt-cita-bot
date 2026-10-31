@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import re
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from typing import Dict, Optional, Tuple
@@ -14,6 +15,7 @@ import dgt
 import premium
 import radar
 import rewards
+import signals
 import store
 import tg
 import views
@@ -79,6 +81,24 @@ def notify_inviter(inviter: int) -> None:
                               "🎉 Твій друг виконав умови! Забери нагороду в «🎁 Бонусах»."),
             tg.ikb([[tg.btn(views.tx(lang, "🎁 Бонусы", "🎁 Бонуси"), "bn", "success"),
                      tg.btn(views.tx(lang, "✖️ Скрыть", "✖️ Сховати"), "hide")]]))
+
+
+def report_signal(chat: int, province: str, doc: str) -> Tuple[str, int]:
+    """Пользователь увидел места. Возвращает (статус, сколько человек получат сигнал)."""
+    status, sig = signals.report(chat, province, doc)
+    if not sig:
+        return status, 0
+    targets = signals.audience(sig)
+    checker.event(f"🛂 Сигнал: {signals.PROVINCES[province]}, {doc} — получат {len(targets)}", "user")
+    jobs.submit(deliver_signal, sig, targets)
+    return status, len(targets)
+
+
+def deliver_signal(sig: dict, targets: list) -> None:
+    for chat in targets:
+        if store.get_chat(chat).get("role") not in ("banned", "pending"):
+            tg.send(chat, *views.signal_alert(chat, sig), silent=checker.is_quiet(chat))
+            time.sleep(0.05)  # лимит Telegram — около 30 сообщений в секунду
 
 
 def set_paused(sub: dict, paused: bool) -> str:

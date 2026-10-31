@@ -98,6 +98,17 @@ RADAR_P = page("linear-gradient(120deg,#07142B 0%,#0B2A4A 55%,#0E5A5E 100%)", RA
     "{DECOR}", '<div style="position:absolute;inset:0;background:radial-gradient(circle at 26% 50%,rgba(46,230,166,.22),rgba(0,0,0,0) 52%)"></div>')
 
 
+CARD = '''<svg viewBox="0 0 440 320" width="440" height="320"><defs>
+<linearGradient id="d" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#DCE9FF"/></linearGradient>
+<linearGradient id="h" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2F6BFF"/><stop offset="1" stop-color="#1BC8E8"/></linearGradient>
+<filter id="s" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#04163F" flood-opacity=".5"/></filter></defs>
+<g filter="url(#s)"><rect x="20" y="24" width="400" height="260" rx="30" fill="url(#d)"/></g>
+<path d="M20 86 V54 a30 30 0 0 1 30 -30 H390 a30 30 0 0 1 30 30 V86 Z" fill="url(#h)"/>
+<rect x="52" y="118" width="110" height="136" rx="16" fill="#C9DBFF"/><circle cx="107" cy="166" r="28" fill="#6E9BFF"/><path d="M66 244 a41 41 0 0 1 82 0 Z" fill="#6E9BFF"/>
+<rect x="190" y="128" width="190" height="20" rx="10" fill="#9DB9EA"/><rect x="190" y="170" width="150" height="20" rx="10" fill="#C9DBFF"/><rect x="190" y="212" width="120" height="20" rx="10" fill="#C9DBFF"/>
+<circle cx="372" cy="238" r="44" fill="#16C784"/><path d="M350 238 l16 16 l30 -34" fill="none" stroke="#fff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/></svg>'''
+DOCS = page("linear-gradient(120deg,#07225E 0%,#1646B8 58%,#14A7D8 100%)", CARD, "TIE · NIE", "🛂 👥 🟢", "#fff").replace(
+    "{DECOR}", GLOW + RINGS)
 ADMIN = page("linear-gradient(120deg,#0C1020 0%,#1B2442 55%,#3A2A7A 100%)", PANEL, "Admin", "📈 🩺 👥 💰 📣", "#fff").replace(
     "{DECOR}", '<div style="position:absolute;inset:0;background:radial-gradient(circle at 26% 50%,rgba(120,120,255,.25),rgba(0,0,0,0) 52%)"></div>' + RINGS)
 
@@ -120,7 +131,7 @@ def shot(html, out, w, h, quality=86):
 avatar = f'<!doctype html><style>html,body{{margin:0}}svg{{display:block;width:640px;height:640px}}</style>{LOGO}'
 shot(avatar, HERE / "avatar.png", 640, 640)
 shot(avatar, HERE / "avatar.jpg", 640, 640, 92)
-for name, html in (("banner", HOME), ("banner_premium", PREMIUM), ("banner_bonus", BONUS), ("banner_radar", RADAR_P), ("banner_admin", ADMIN)):
+for name, html in (("banner", HOME), ("banner_premium", PREMIUM), ("banner_bonus", BONUS), ("banner_radar", RADAR_P), ("banner_admin", ADMIN), ("banner_docs", DOCS)):
     shot(html, HERE / f"{name}.jpg", 1280, 640)
 shot(HOME.replace("height:640px", "height:720px"), HERE / "cover.png", 1280, 720)  # картинка в описании бота: 640x360 в BotFather
 Image.open(HERE / "cover.png").resize((640, 360), Image.LANCZOS).save(HERE / "cover-640x360.png", optimize=True)

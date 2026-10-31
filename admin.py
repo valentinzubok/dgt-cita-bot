@@ -97,12 +97,14 @@ def panel() -> Tuple[str, dict]:
         f"🔔 Уведомлений: <b>{store.metric(day, 'alerts')}</b> · ✅ записались: <b>{store.metric(day, 'bookings')}</b>\n"
         f"💰 Оплат: <b>{store.metric(day, 'payments')}</b> на <b>{store.metric(day, 'stars')}</b> ⭐\n"
         f"🎁 Промо: {store.metric(day, 'promo_used')} · заданий: {store.metric(day, 'tasks_done')} · "
-        f"друзей: {store.metric(day, 'ref_activated')}</blockquote>\n"
+        f"друзей: {store.metric(day, 'ref_activated')}\n"
+        f"🛂 Сигналов о документах: <b>{store.metric(day, 'signals')}</b></blockquote>\n"
         "📊 <b>Всего</b>\n<blockquote>"
         f"👥 Пользователей: <b>{len(chats)}</b> · за неделю: <b>{active_week}</b>\n"
         f"💎 Premium: <b>{paid_now}</b>\n"
         f"📋 Подписок: <b>{len(subs)}</b> · офисов: <b>{len(keys)}/{config.MAX_OFFICES}</b>\n"
-        f"🟢 Офисов с датами: <b>{open_now}</b>"
+        f"🟢 Офисов с датами: <b>{open_now}</b>\n"
+        f"🛂 Подписок на сигналы: <b>{store.signal_sub_count()}</b>"
         + (f"\n🙋 Ждут одобрения: <b>{waiting}</b>" if waiting else "") + "</blockquote>"
     )
     return text, ikb([

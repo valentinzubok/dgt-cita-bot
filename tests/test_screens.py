@@ -18,6 +18,7 @@ import checker  # noqa: E402
 import dgt  # noqa: E402
 import premium  # noqa: E402
 import rewards  # noqa: E402
+import signals  # noqa: E402
 import store  # noqa: E402
 import tg  # noqa: E402
 import views  # noqa: E402
@@ -113,6 +114,20 @@ class Screens(unittest.TestCase):
                 if views.all_days(s.get("last")):
                     check(self, views.alert(s, s["last"], {"2030-01-07"}), "alert")
                 self.assertTrue(views.day_popup(s, "2030-01-07"))
+
+    def test_signal_screens(self):
+        sig = {"id": 7, "chat": 9, "province": "38", "doc": "ukr", "ok_votes": 0, "no_votes": 0, "created_at": 1}
+        for chat in (1, 2, 3, 4):
+            signals.subscribe(chat, "38", "ukr")
+            lang = views.lang_of(chat)
+            for name, screen in {
+                "docs": views.docs_view(chat, "заметка"), "prov": views.doc_provinces(chat, "r", 3), "types": views.doc_types(chat, "s", "38"),
+                "confirm": views.doc_confirm(chat, "38", "pas"), "alert": views.signal_alert(chat, sig), "voted": views.signal_alert(chat, sig, True),
+                "passport": views.signal_alert(chat, dict(sig, doc="pas")),
+            }.items():
+                check(self, screen, f"{name}/{chat}")
+            for status in ("ok", "merged", "daily", "muted"):
+                self.assertTrue(views.signal_result(lang, status, 3))
 
     def test_outage_screens(self):
         views.outage = lambda: True
