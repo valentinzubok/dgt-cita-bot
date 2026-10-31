@@ -70,6 +70,15 @@ def seed(paid):
 urls = {"premium": link(11, "Valentyn", "ru"), "free": link(12, "Olena", "uk"), "dark": link(13, "María", "es", True), "en": link(14, "Anna", "en")}
 for chat in (11, 13, 14):
     seed(chat)
+now = int(time.time())
+for centro, area, count, hour in (("486", "CYV", 12, 9), ("526", "VEH", 7, 12), ("545", "CND", 4, 8), ("491", "SAN", 2, 20)):
+    for i in range(count):
+        store.write("INSERT INTO events (centro, area, opened_at, closed_at, days) VALUES (?, ?, ?, ?, ?)",
+                    (centro, area, now - (i + 1) * 86400 - (i % 3) * 3600, now - (i + 1) * 86400 + 900, 3))
+for kind, text in (("job", "Ищем повара в кафе в Малаге, полный день, договор и выходные по графику. Пишите @cafe_malaga"),
+                   ("ad", "Автошкола в Мадриде: занятия на русском и украинском, подготовка к экзамену DGT. Запись: +34 612 345 678")):
+    post = store.add_post(99, kind, text, None, 99)
+    store.set_post(post["id"], status="published", message=post["id"], decided_at=now)
 store.add_task("channel", "Подпишись на канал OkSita News", "Підпишись на канал OkSita News", "@oksita_news", "https://t.me/oksita_news", 12,
                "Suscríbete al canal OkSita News", "Join the OkSita News channel")
 store.flush()

@@ -16,6 +16,8 @@ FREE_SUBS, TOP_SUBS = 1, 5
 WINDOW = 30 * 60      # повторный сигнал за это время — подтверждение первого, а не новая рассылка
 DAILY = 5             # сигналов от одного человека в сутки
 BAD_LIMIT = 3         # столько опровергнутых сигналов за 30 дней — больше не принимаем
+WINDOWS = (1, 8, 12, 15, 19, 23)  # часы, в которые можно попросить напоминание проверить сайт самому
+FREE_WINDOWS, TOP_WINDOWS = 1, 4
 DAY = 86400
 
 PROVINCES = {
@@ -47,6 +49,30 @@ def valid(province: str, doc: str) -> bool:
 
 def limit(chat: int) -> int:
     return TOP_SUBS if premium.is_premium(chat) else FREE_SUBS
+
+
+def window_limit(chat: int) -> int:
+    return TOP_WINDOWS if premium.is_premium(chat) else FREE_WINDOWS
+
+
+def windows_of(chat: int) -> List[int]:
+    raw = store.get_chat(chat).get("windows") or ""
+    return [int(h) for h in raw.split(",") if h.isdigit() and int(h) in WINDOWS]
+
+
+def toggle_window(chat: int, hour: int) -> str:
+    """Статус: ok | limit | bad."""
+    if hour not in WINDOWS:
+        return "bad"
+    mine = windows_of(chat)
+    if hour in mine:
+        mine.remove(hour)
+    elif len(mine) >= window_limit(chat):
+        return "limit"
+    else:
+        mine.append(hour)
+    store.set_chat(chat, windows=",".join(str(h) for h in sorted(mine)))
+    return "ok"
 
 
 def subs_of(chat: int) -> List[Tuple[str, str]]:

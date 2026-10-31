@@ -396,7 +396,8 @@ def tier_line(chat: int, lang: str) -> str:
     if premium.is_premium(chat):
         until = store.get_chat(chat).get("premium_until") or 0
         when = tx(lang, " до ", " до ", " hasta el ", " until ") + short_date(lang, until) if until > time.time() else ""
-        return f"💎 <b>{config.BRAND} Premium</b>{when}"
+        label = tx(lang, " · пробный период", " · пробний період", " · prueba", " · trial") if premium.in_trial(chat) else ""
+        return f"💎 <b>{config.BRAND} Premium</b>{when}{label}"
     return BRAND_LINE
 
 
@@ -471,6 +472,8 @@ def dashboard(chat: int, name: str = "", next_check: Optional[int] = None, note:
         lines += ["", note]
 
     rows = [[btn(tx(lang, "➕ Добавить офис", "➕ Додати офіс", "➕ Añadir oficina", "➕ Add office"), "p:0", "primary")]]
+    if premium.can_trial(chat):
+        rows.append([trial_btn(lang)])
     rows.append([btn(tx(lang, "📋 Мои офисы", "📋 Мої офіси",
                               "📋 Mis oficinas",
                               "📋 My offices") + (f" · {len(subs)}" if subs else ""), "l"),
@@ -489,6 +492,7 @@ def dashboard(chat: int, name: str = "", next_check: Optional[int] = None, note:
                               "🛂 Documents"), "dc"), btn(tx(lang, "🇺🇦 Для украинцев", "🇺🇦 Для українців",
                                                                                  "🇺🇦 Para ucranianos",
                                                                                  "🇺🇦 For Ukrainians"), "ua")])
+    rows.append([btn(board_btn(lang), "jb")])
     if is_admin(chat):
         rows.append([btn("🛠 Админ-панель", "ad")])
     return "\n".join(lines), ikb(rows)
@@ -986,7 +990,9 @@ def booked_card(sub: dict, note: str = "") -> Tuple[str, dict]:
                               "<i>This is a general list: check the DGT website for your exact trámite.</i>"))
     if note:
         lines.append(f"\n{note}")
-    rows = [[url(tx(lang, "📋 Требования на сайте DGT", "📋 Вимоги на сайті DGT",
+    share = url(tx(lang, "🎁 Рассказать другу", "🎁 Розповісти другові", "🎁 Contárselo a un amigo", "🎁 Tell a friend"),
+                rewards.share_link(sub["chat"], invite_text(lang)))
+    rows = [[share], [url(tx(lang, "📋 Требования на сайте DGT", "📋 Вимоги на сайті DGT",
                           "📋 Requisitos en la web de la DGT",
                           "📋 Requirements on the DGT website"), DGT_SEDE)],
             [btn(tx(lang, "↩️ Запись отменилась — искать снова", "↩️ Запис скасовано — шукати знову",
@@ -1035,6 +1041,8 @@ def alert(sub: dict, results: list, new: Set[str]) -> Tuple[str, dict]:
                               f"<i>Showing dates within {sub['max_days']} days</i>"))
     lines.append(tx(lang, "<i>На сайте: ", "<i>На сайті: ", "<i>En la web: ", "<i>On the website: ")
                  + f"{esc(city(sub['centro']))} → {esc(sub_area(sub))} → Continuar → Pedir cita</i>")
+    stamp = datetime.now(config.TZ)
+    lines.append(tx(lang, f"🕐 Проверено в {stamp:%H:%M:%S}", f"🕐 Перевірено о {stamp:%H:%M:%S}", f"🕐 Revisado a las {stamp:%H:%M:%S}", f"🕐 Checked at {stamp:%H:%M:%S}"))
     kb = ikb([
         [url(tx(lang, "📝 Записаться на сайте DGT", "📝 Записатися на сайті DGT",
                       "📝 Pedir cita en la web de la DGT",
@@ -1069,6 +1077,7 @@ def radar_start(chat: int) -> Tuple[str, dict]:
                               "🏢 Elegir otra oficina",
                               "🏢 Choose another office") if seen
                      else tx(lang, "🏢 Выбрать офис", "🏢 Обрати офіс", "🏢 Elegir oficina", "🏢 Choose an office"), "rp:0")])
+    rows.append([btn(tx(lang, "📊 Где чаще появляются места", "📊 Де частіше з’являються місця", "📊 Dónde aparecen más plazas", "📊 Where slots appear most"), "ost")])
     rows.append([home_btn(lang)])
     text = (tx(lang, "📡 <b>Радар</b>\n\nПроверю офисы рядом и покажу, где можно записаться раньше всего.\n\n"
                      "От какого офиса искать?",
@@ -1228,7 +1237,8 @@ def help_view(chat: int) -> Tuple[str, dict]:
               "✅ «Я записался»: напомню о визите и подскажу, что взять\n"
               "📅 Только даты раньше нужной, ⏸ пауза, 📊 история\n"
               "🌙 Тихий режим ночью\n"
-              "🎁 Бесплатный Premium за задания и друзей</blockquote>\n"
+              "🎁 Бесплатный Premium за задания и друзей\n"
+              "💼 Вакансии и объявления в канале</blockquote>\n"
               "💡 <b>Советы</b>\n<blockquote>Места быстро разбирают: открывай сайт сразу после уведомления\n"
               "Держи под рукой DNI/NIE: сайт спросит данные при записи</blockquote>\n"
               "<i>Записываешься ты сам, я только сообщаю о местах. Бот не связан с DGT.</i>",
@@ -1242,7 +1252,8 @@ def help_view(chat: int) -> Tuple[str, dict]:
               "✅ «Я записався»: нагадаю про візит і підкажу, що взяти\n"
               "📅 Лише дати раніше потрібної, ⏸ пауза, 📊 історія\n"
               "🌙 Тихий режим уночі\n"
-              "🎁 Безкоштовний Premium за завдання й друзів</blockquote>\n"
+              "🎁 Безкоштовний Premium за завдання й друзів\n"
+              "💼 Вакансії та оголошення в каналі</blockquote>\n"
               "💡 <b>Поради</b>\n<blockquote>Місця швидко розбирають: відкривай сайт одразу після сповіщення\n"
               "Тримай під рукою DNI/NIE: сайт спитає дані під час запису</blockquote>\n"
               "<i>Записуєшся ти сам, я лише повідомляю про місця. Бот не пов’язаний з DGT.</i>",
@@ -1256,7 +1267,8 @@ def help_view(chat: int) -> Tuple[str, dict]:
               "✅ «Ya tengo cita»: te recuerdo la visita y qué llevar\n"
               "📅 Solo fechas anteriores a la que necesitas, ⏸ pausa, 📊 historial\n"
               "🌙 Modo silencio por la noche\n"
-              "🎁 Premium gratis por tareas y amigos</blockquote>\n"
+              "🎁 Premium gratis por tareas y amigos\n"
+              "💼 Empleo y anuncios en el canal</blockquote>\n"
               "💡 <b>Consejos</b>\n<blockquote>Las plazas vuelan: abre la web nada más recibir el aviso\n"
               "Ten a mano tu DNI/NIE: la web te pedirá los datos al reservar</blockquote>\n"
               "<i>La cita la pides tú; yo solo aviso de las plazas. El bot no tiene relación con la DGT.</i>",
@@ -1270,7 +1282,8 @@ def help_view(chat: int) -> Tuple[str, dict]:
               "✅ “I booked it”: I'll remind you of the visit and tell you what to bring\n"
               "📅 Only dates earlier than you need, ⏸ pause, 📊 history\n"
               "🌙 Quiet mode at night\n"
-              "🎁 Free Premium for tasks and friends</blockquote>\n"
+              "🎁 Free Premium for tasks and friends\n"
+              "💼 Jobs and posts in the channel</blockquote>\n"
               "💡 <b>Tips</b>\n<blockquote>Slots go fast: open the site right after the alert\n"
               "Keep your DNI/NIE handy: the site asks for it when booking</blockquote>\n"
               "<i>You make the booking yourself; I only tell you about free slots. The bot is not affiliated with DGT.</i>")
@@ -1328,6 +1341,8 @@ def docs_view(chat: int, note: str = "") -> Tuple[str, dict]:
                           "➕ Track an appointment"), "dp:s:0", "primary")]]
     for province, doc in mine:
         rows.append([btn(f"🗑 {signals.DOCS[doc][0]} {signals.PROVINCES[province]}", f"dx:{province}:{doc}")])
+    rows.append([btn(tx(lang, "📋 Как записаться на TIE", "📋 Як записатися на TIE", "📋 Cómo pedir cita TIE", "📋 How to book a TIE"), "dg"),
+                 btn(tx(lang, "⏰ Окна проверки", "⏰ Вікна перевірки", "⏰ Ventanas", "⏰ Check windows"), "dw")])
     rows.append([url(tx(lang, "📝 Сайт записи Extranjería", "📝 Сайт запису Extranjería",
                               "📝 Web de citas de Extranjería",
                               "📝 Extranjería booking site"), signals.ICP_URL)])
@@ -1513,7 +1528,7 @@ def privacy_view(chat: int) -> Tuple[str, dict]:
               "🔒 <b>Конфиденциальность</b>\n\n"
               "<b>Что я храню</b>\n<blockquote>• Telegram ID, имя и @username\n• язык и настройки\n"
               "• подписки: офис, тип записи, фильтр дат и дату визита, если ты её указал\n"
-              "• тариф, оплаты, приглашения и выполненные задания\n"
+              "• тариф, оплаты, приглашения и выполненные задания\n• твои объявления для канала\n"
               "• согласие на предложения партнёров</blockquote>\n"
               "<b>Зачем</b> — чтобы присылать уведомления и напоминания и вести твой тариф. "
               "Данные не продаются и не передаются третьим лицам.\n"
@@ -1524,7 +1539,7 @@ def privacy_view(chat: int) -> Tuple[str, dict]:
               "🔒 <b>Конфіденційність</b>\n\n"
               "<b>Що я зберігаю</b>\n<blockquote>• Telegram ID, ім’я та @username\n• мову й налаштування\n"
               "• підписки: офіс, тип запису, фільтр дат і дату візиту, якщо ти її вказав\n"
-              "• тариф, оплати, запрошення й виконані завдання\n"
+              "• тариф, оплати, запрошення й виконані завдання\n• твої оголошення для каналу\n"
               "• згоду на пропозиції партнерів</blockquote>\n"
               "<b>Навіщо</b> — щоб надсилати сповіщення й нагадування та вести твій тариф. "
               "Дані не продаються і не передаються третім особам.\n"
@@ -1535,7 +1550,7 @@ def privacy_view(chat: int) -> Tuple[str, dict]:
               "🔒 <b>Privacidad</b>\n\n"
               "<b>Qué guardo</b>\n<blockquote>• ID de Telegram, nombre y @usuario\n• idioma y ajustes\n"
               "• oficinas seguidas: oficina, tipo de cita, filtro de fechas y fecha de la visita, si la has indicado\n"
-              "• plan, pagos, invitaciones y tareas completadas\n"
+              "• plan, pagos, invitaciones y tareas completadas\n• tus anuncios para el canal\n"
               "• consentimiento para ofertas de socios</blockquote>\n"
               "<b>Para qué</b>: para enviarte avisos y recordatorios y gestionar tu plan. "
               "Los datos no se venden ni se ceden a terceros.\n"
@@ -1546,7 +1561,7 @@ def privacy_view(chat: int) -> Tuple[str, dict]:
               "🔒 <b>Privacy</b>\n\n"
               "<b>What I store</b>\n<blockquote>• Telegram ID, name and @username\n• language and settings\n"
               "• tracked offices: office, appointment type, date filter and visit date, if you gave one\n"
-              "• plan, payments, invitations and completed tasks\n"
+              "• plan, payments, invitations and completed tasks\n• your channel posts\n"
               "• consent to partner offers</blockquote>\n"
               "<b>Why</b>: to send you alerts and reminders and manage your plan. "
               "Data is not sold or shared with third parties.\n"
@@ -1693,6 +1708,9 @@ def premium_view(chat: int, note: str = "") -> Tuple[str, dict]:
         "🚀 Check queue: <b>first</b>\n"
         "📱 Mini app: <b>yes</b>\n"
         "🔕 Ads: <b>none</b>") + "</blockquote>")
+    state = premium.guarantee_state(chat)
+    if state == "wait" or (not paid and not c.get("paid_at")):
+        lines.append(guarantee_note(lang))
     if outage():
         lines.append(tx(lang, "🛠 Идут технические работы, поэтому оплата временно закрыта. Бонусы и промокоды работают.",
                         "🛠 Тривають технічні роботи, тому оплату тимчасово закрито. Бонуси й промокоди працюють.",
@@ -1706,6 +1724,10 @@ def premium_view(chat: int, note: str = "") -> Tuple[str, dict]:
     if note:
         lines += ["", note]
     rows = [] if outage() else plan_buttons(chat, lang)
+    if premium.can_trial(chat):
+        rows.insert(0, [trial_btn(lang)])
+    if state == "ready":
+        rows.append([btn(tx(lang, "🛡 Вернуть звёзды по гарантии", "🛡 Повернути зірки за гарантією", "🛡 Devolver estrellas (garantía)", "🛡 Refund Stars (guarantee)"), "gr")])
     if paid and premium.app_url():
         rows.append([webapp(tx(lang, "📱 Открыть приложение", "📱 Відкрити застосунок",
                                      "📱 Abrir la miniapp",
@@ -1722,7 +1744,20 @@ def premium_view(chat: int, note: str = "") -> Tuple[str, dict]:
 
 def premium_notice(chat: int, kind: str, until: int, paused: int = 0) -> Tuple[str, dict]:
     lang = lang_of(chat)
-    if kind == "soon":
+    trial = premium.after_trial(chat)
+    if trial and kind == "soon":
+        text = tx(lang, f"🎁 Пробный период закончится {datetime.fromtimestamp(until, config.TZ):%d.%m в %H:%M}. Продли Premium, чтобы офисы не встали на паузу.",
+                  f"🎁 Пробний період закінчиться {datetime.fromtimestamp(until, config.TZ):%d.%m о %H:%M}. Продовж Premium, щоб офіси не стали на паузу.",
+                  f"🎁 La prueba termina el {datetime.fromtimestamp(until, config.TZ):%d.%m a las %H:%M}. Amplía Premium para que tus oficinas no se pausen.",
+                  f"🎁 Your trial ends on {datetime.fromtimestamp(until, config.TZ):%d.%m at %H:%M}. Extend Premium so your offices don't pause.")
+    elif trial:
+        text = tx(lang, f"🎁 <b>Пробный период закончился.</b>\nНеделя Premium стоит {premium.plan_price('p7')} ⭐, а бесплатно его можно получить в «🎁 Бонусах».",
+                  f"🎁 <b>Пробний період закінчився.</b>\nТиждень Premium коштує {premium.plan_price('p7')} ⭐, а безкоштовно його можна отримати в «🎁 Бонусах».",
+                  f"🎁 <b>La prueba ha terminado.</b>\nUna semana de Premium cuesta {premium.plan_price('p7')} ⭐, y gratis puedes conseguirlo en «🎁 Bonos».",
+                  f"🎁 <b>Your trial has ended.</b>\nA week of Premium costs {premium.plan_price('p7')} ⭐, or get it free in “🎁 Bonuses”.")
+        if paused:
+            text += tx(lang, f"\nОфисов на паузе: {paused}.", f"\nОфісів на паузі: {paused}.", f"\nOficinas en pausa: {paused}.", f"\nOffices paused: {paused}.")
+    elif kind == "soon":
         text = tx(lang, f"💎 Premium закончится {datetime.fromtimestamp(until, config.TZ):%d.%m в %H:%M}. "
                         "Продли или получи бесплатно в «🎁 Бонусах».",
                   f"💎 Premium закінчиться {datetime.fromtimestamp(until, config.TZ):%d.%m о %H:%M}. "
@@ -1774,7 +1809,7 @@ def app_locked(chat: int) -> Tuple[str, dict]:
     return (tx(lang, "📱 <b>Мини-приложение</b> — только для Premium.", "📱 <b>Міні-застосунок</b> — лише для Premium.",
                      "📱 <b>La miniapp</b> es solo para Premium.",
                      "📱 <b>The mini app</b> is for Premium only."),
-            ikb([[btn("💎 Premium", "pr", "success"), home_btn(lang)]]))
+            ikb(([[trial_btn(lang)]] if premium.can_trial(chat) else []) + [[btn("💎 Premium", "pr", "success"), home_btn(lang)]]))
 
 
 def thanks_text(lang: str, plan: str, until: int) -> str:
@@ -1793,7 +1828,9 @@ def terms_view(chat: int) -> Tuple[str, dict]:
               "• Запись через сайт DGT бесплатна. Premium — плата за удобство бота: больше офисов и более частые проверки.\n"
               "• Мы не гарантируем, что запись появится, и не отвечаем за сбои сайта DGT.\n"
               "• Подписка на 30 дней продлевается автоматически, отключить можно в любой момент в «💎 Premium».\n"
-              "• Цифровая услуга начинается сразу после оплаты.</blockquote>\n"
+              "• Цифровая услуга начинается сразу после оплаты.\n"
+              "• Гарантия: если за 7 дней после первой оплаты Premium не будет ни одного уведомления, звёзды можно вернуть один раз.\n"
+              "• Объявления в канале публикуются после проверки. Если отказываем, звёзды возвращаем. Продажа записей запрещена.</blockquote>\n"
               "Вопросы по оплате: /paysupport",
               "📄 <b>Умови</b>\n\n"
               "<blockquote>• OkSita — незалежний сервіс, не пов’язаний з DGT і не продає записи.\n"
@@ -1801,7 +1838,9 @@ def terms_view(chat: int) -> Tuple[str, dict]:
               "• Запис через сайт DGT безкоштовний. Premium — плата за зручність бота: більше офісів і частіші перевірки.\n"
               "• Ми не гарантуємо, що запис з’явиться, і не відповідаємо за збої сайту DGT.\n"
               "• Підписка на 30 днів продовжується автоматично, вимкнути можна будь-коли в «💎 Premium».\n"
-              "• Цифрова послуга починається одразу після оплати.</blockquote>\n"
+              "• Цифрова послуга починається одразу після оплати.\n"
+              "• Гарантія: якщо за 7 днів після першої оплати Premium не буде жодного сповіщення, зірки можна повернути один раз.\n"
+              "• Оголошення в каналі публікуються після перевірки. Якщо відмовляємо, зірки повертаємо. Продаж записів заборонено.</blockquote>\n"
               "Питання щодо оплати: /paysupport",
               "📄 <b>Condiciones</b>\n\n"
               "<blockquote>• OkSita es un servicio independiente, no tiene relación con la DGT y no vende citas.\n"
@@ -1809,7 +1848,9 @@ def terms_view(chat: int) -> Tuple[str, dict]:
               "• Pedir cita en la web de la DGT es gratis. Premium paga la comodidad del bot: más oficinas y revisiones más frecuentes.\n"
               "• No garantizamos que aparezca una cita ni respondemos de los fallos de la web de la DGT.\n"
               "• La suscripción de 30 días se renueva automáticamente; puedes cancelarla cuando quieras en «💎 Premium».\n"
-              "• El servicio digital empieza justo después del pago.</blockquote>\n"
+              "• El servicio digital empieza justo después del pago.\n"
+              "• Garantía: si en 7 días desde el primer pago de Premium no llega ningún aviso, puedes recuperar las estrellas una vez.\n"
+              "• Los anuncios del canal se publican tras la revisión. Si los rechazamos, devolvemos las estrellas. Se prohíbe vender citas.</blockquote>\n"
               "Dudas sobre pagos: /paysupport",
               "📄 <b>Terms</b>\n\n"
               "<blockquote>• OkSita is an independent service, not affiliated with DGT, and it doesn't sell appointments.\n"
@@ -1817,7 +1858,9 @@ def terms_view(chat: int) -> Tuple[str, dict]:
               "• Booking on the DGT website is free. Premium pays for the bot's convenience: more offices and more frequent checks.\n"
               "• We don't guarantee an appointment will appear and aren't responsible for DGT website outages.\n"
               "• The 30-day subscription renews automatically; you can turn it off anytime in “💎 Premium”.\n"
-              "• The digital service starts right after payment.</blockquote>\n"
+              "• The digital service starts right after payment.\n"
+              "• Guarantee: if there isn't a single alert within 7 days of your first Premium payment, you can get your Stars back once.\n"
+              "• Channel posts are published after review. If we reject one, we refund the Stars. Selling appointments is banned.</blockquote>\n"
               "Payment questions: /paysupport")
     return text, ikb([[btn("💎 Premium", "pr"), home_btn(lang)]])
 
@@ -1995,3 +2038,392 @@ def ref_welcome(lang: str) -> str:
               f"🎁 Тебе запросив друг! Додай офіс — і ви обидва отримаєте +{hours_text(lang, store.setting('ref_hours'))} Premium.",
                     f"🎁 ¡Te ha invitado un amigo! Añade una oficina y los dos recibiréis +{hours_text(lang, store.setting('ref_hours'))} de Premium.",
                     f"🎁 A friend invited you! Add an office and you'll both get +{hours_text(lang, store.setting('ref_hours'))} of Premium.")
+
+
+# ---------- пробный период ----------
+
+def trial_days(lang: str) -> str:
+    return hours_text(lang, int(store.setting("trial_hours")))
+
+
+def trial_btn(lang: str) -> dict:
+    d = trial_days(lang)
+    return btn(tx(lang, f"🎁 Попробовать Premium · {d}", f"🎁 Спробувати Premium · {d}", f"🎁 Probar Premium · {d}", f"🎁 Try Premium · {d}"),
+               "tr", "success")
+
+
+def trial_note(lang: str, status: str) -> str:
+    return {
+        "used": tx(lang, "Пробный период уже был: он даётся один раз.", "Пробний період уже був: він надається один раз.",
+                   "Ya usaste la prueba: solo se puede una vez.", "You've already used the trial: it's one per person."),
+        "paid": tx(lang, "Пробный период только для тех, кто ещё не покупал Premium.", "Пробний період лише для тих, хто ще не купував Premium.",
+                   "La prueba es solo para quien aún no ha comprado Premium.", "The trial is only for people who haven't bought Premium yet."),
+        "active": tx(lang, "Premium уже включён.", "Premium уже увімкнено.", "Premium ya está activo.", "Premium is already on."),
+        "down": tx(lang, "🛠 Идут технические работы. Запусти пробный период позже, чтобы дни не сгорели.",
+                   "🛠 Тривають технічні роботи. Запусти пробний період пізніше, щоб дні не згоріли.",
+                   "🛠 Estamos en mantenimiento. Empieza la prueba más tarde para no perder días.",
+                   "🛠 Maintenance in progress. Start the trial later so you don't lose days."),
+    }.get(status, tx(lang, "Пробный период сейчас недоступен.", "Пробний період зараз недоступний.",
+                     "La prueba no está disponible ahora.", "The trial isn't available right now."))
+
+
+def trial_view(chat: int, note: str = "") -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    d, slow, fast = trial_days(lang), store.setting("interval"), store.setting("interval_premium")
+    free, top = store.setting("free_subs"), store.setting("max_subs")
+    text = (tx(lang, f"🎁 <b>{d} Premium бесплатно</b>\n\nПолный доступ ко всему, включая мини-приложение.",
+               f"🎁 <b>{d} Premium безкоштовно</b>\n\nПовний доступ до всього, зокрема до міні-застосунку.",
+               f"🎁 <b>{d} de Premium gratis</b>\n\nAcceso completo a todo, también a la miniapp.",
+               f"🎁 <b>{d} of Premium for free</b>\n\nFull access to everything, including the mini app.")
+            + "\n<blockquote>" + tx(lang,
+                                    f"📱 Мини-приложение: календарь, радар, статистика\n⚡️ Проверка каждые {fast} мин вместо {slow}\n"
+                                    f"🏢 До {top} офисов вместо {free}\n📡 Радар без лимита, до 250 км\n🛂 До {signals.TOP_SUBS} сигналов о документах",
+                                    f"📱 Міні-застосунок: календар, радар, статистика\n⚡️ Перевірка кожні {fast} хв замість {slow}\n"
+                                    f"🏢 До {top} офісів замість {free}\n📡 Радар без ліміту, до 250 км\n🛂 До {signals.TOP_SUBS} сигналів про документи",
+                                    f"📱 Miniapp: calendario, radar, estadísticas\n⚡️ Revisión cada {fast} min en vez de {slow}\n"
+                                    f"🏢 Hasta {top} oficinas en vez de {free}\n📡 Radar sin límite, hasta 250 km\n🛂 Hasta {signals.TOP_SUBS} señales de documentos",
+                                    f"📱 Mini app: calendar, radar, statistics\n⚡️ Checks every {fast} min instead of {slow}\n"
+                                    f"🏢 Up to {top} offices instead of {free}\n📡 Unlimited radar, up to 250 km\n🛂 Up to {signals.TOP_SUBS} document signals")
+            + "</blockquote>\n"
+            + tx(lang, "<i>Только один раз на человека. Отсчёт идёт с момента нажатия. Ничего не спишется, автопродления нет. "
+                       "Когда срок закончится, лишние офисы встанут на паузу.</i>",
+                 "<i>Лише один раз на людину. Відлік іде з моменту натискання. Нічого не спишеться, автопродовження немає. "
+                 "Коли строк закінчиться, зайві офіси стануть на паузу.</i>",
+                 "<i>Solo una vez por persona. Empieza al pulsar. No se cobra nada ni se renueva sola. "
+                 "Al terminar, las oficinas de más quedan en pausa.</i>",
+                 "<i>One time per person. It starts when you tap. Nothing is charged and nothing renews. "
+                 "When it ends, extra offices are paused.</i>"))
+    if note:
+        text += f"\n\n{note}"
+    rows = []
+    if premium.can_trial(chat):
+        rows.append([btn(tx(lang, f"✅ Начать: {d} бесплатно", f"✅ Почати: {d} безкоштовно", f"✅ Empezar: {d} gratis", f"✅ Start: {d} free"), "tr!", "success")])
+    rows.append([btn("💎 Premium", "pr"), home_btn(lang)])
+    return text, ikb(rows)
+
+
+def trial_started(chat: int) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    until = datetime.fromtimestamp(store.get_chat(chat).get("premium_until") or 0, config.TZ)
+    text = tx(lang, f"🎉 <b>Premium включён до {until:%d.%m в %H:%M}</b>\n\nМини-приложение теперь рядом с полем ввода. "
+                    "Добавь офисы, и бот будет проверять их каждые несколько минут.",
+              f"🎉 <b>Premium увімкнено до {until:%d.%m о %H:%M}</b>\n\nМіні-застосунок тепер поруч із полем введення. "
+              "Додай офіси, і бот перевірятиме їх кожні кілька хвилин.",
+              f"🎉 <b>Premium activo hasta el {until:%d.%m a las %H:%M}</b>\n\nLa miniapp ya está junto al campo de texto. "
+              "Añade oficinas y el bot las revisará cada pocos minutos.",
+              f"🎉 <b>Premium is on until {until:%d.%m at %H:%M}</b>\n\nThe mini app is now next to the message field. "
+              "Add offices and the bot will check them every few minutes.")
+    rows = []
+    if premium.app_url():
+        rows.append([webapp(tx(lang, "📱 Открыть приложение", "📱 Відкрити застосунок", "📱 Abrir la miniapp", "📱 Open the mini app"), premium.app_url(), "primary")])
+    rows.append([btn(tx(lang, "➕ Добавить офис", "➕ Додати офіс", "➕ Añadir oficina", "➕ Add office"), "p:0"), home_btn(lang)])
+    return text, ikb(rows)
+
+
+# ---------- вакансии, реклама и партнёры ----------
+
+def hide_label(lang: str) -> str:
+    return tx(lang, "✖️ Скрыть", "✖️ Сховати", "✖️ Ocultar", "✖️ Hide")
+
+
+def board_btn(lang: str) -> str:
+    return tx(lang, "💼 Вакансии и партнёры", "💼 Вакансії та партнери", "💼 Empleo y socios", "💼 Jobs and partners")
+
+
+def channel_name() -> str:
+    return str(store.setting("channel") or "")
+
+
+def channel_url() -> str:
+    return f"https://t.me/{channel_name().lstrip('@')}"
+
+
+def board_view(chat: int, note: str = "") -> Tuple[str, dict]:
+    import board
+    lang = lang_of(chat)
+    name, job, ad = channel_name(), board.price("job"), board.price("ad")
+    free = not store.free_job_used(chat)
+    job_line = tx(lang, f"💼 Вакансия: {'первая бесплатно, дальше ' if free else ''}{job} ⭐",
+                  f"💼 Вакансія: {'перша безкоштовно, далі ' if free else ''}{job} ⭐",
+                  f"💼 Empleo: {'la primera gratis, luego ' if free else ''}{job} ⭐",
+                  f"💼 Job: {'first one free, then ' if free else ''}{job} ⭐")
+    text = (tx(lang, f"💼 <b>Вакансии и реклама</b>\n\nПубликуем объявления в канале {name}: работа, услуги и предложения для людей в Испании.",
+               f"💼 <b>Вакансії та реклама</b>\n\nПублікуємо оголошення в каналі {name}: робота, послуги й пропозиції для людей в Іспанії.",
+               f"💼 <b>Empleo y publicidad</b>\n\nPublicamos anuncios en el canal {name}: empleo, servicios y ofertas para quienes viven en España.",
+               f"💼 <b>Jobs and ads</b>\n\nWe publish posts in the {name} channel: jobs, services and offers for people in Spain.")
+            + f"\n<blockquote>{job_line}\n"
+            + tx(lang, f"📣 Услуга или реклама: {ad} ⭐", f"📣 Послуга або реклама: {ad} ⭐", f"📣 Servicio o publicidad: {ad} ⭐", f"📣 Service or ad: {ad} ⭐")
+            + "</blockquote>\n"
+            + tx(lang, "<i>Каждое объявление проверяет администратор. Если откажем, звёзды вернутся. "
+                       "Нельзя продавать записи (cita): запись бесплатна. Нельзя публиковать обман и незаконные предложения.</i>",
+                 "<i>Кожне оголошення перевіряє адміністратор. Якщо відмовимо, зірки повернуться. "
+                 "Не можна продавати записи (cita): запис безкоштовний. Не можна публікувати обман і незаконні пропозиції.</i>",
+                 "<i>Un administrador revisa cada anuncio. Si lo rechazamos, devolvemos las estrellas. "
+                 "No se pueden vender citas: son gratis. Tampoco se admiten engaños ni ofertas ilegales.</i>",
+                 "<i>An administrator reviews every post. If we reject it, your Stars come back. "
+                 "Selling appointments is banned: they're free. No scams or illegal offers.</i>"))
+    if note:
+        text += f"\n\n{note}"
+    rows = [[btn(tx(lang, "💼 Разместить вакансию", "💼 Розмістити вакансію", "💼 Publicar empleo", "💼 Post a job"), "jn:job", "primary")],
+            [btn(tx(lang, "📣 Разместить услугу", "📣 Розмістити послугу", "📣 Publicar servicio", "📣 Post a service"), "jn:ad")],
+            [btn(tx(lang, "🤝 Партнёрам", "🤝 Партнерам", "🤝 Socios", "🤝 Partners"), "pn"),
+             btn(tx(lang, "📋 Мои объявления", "📋 Мої оголошення", "📋 Mis anuncios", "📋 My posts"), "jm")],
+            [url(tx(lang, "📢 Открыть канал", "📢 Відкрити канал", "📢 Abrir el canal", "📢 Open the channel"), channel_url())],
+            [home_btn(lang)]]
+    return text, ikb(rows)
+
+
+def post_prompt(chat: int, kind: str) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    head = (tx(lang, "💼 <b>Новая вакансия</b>", "💼 <b>Нова вакансія</b>", "💼 <b>Nuevo empleo</b>", "💼 <b>New job</b>") if kind == "job"
+            else tx(lang, "📣 <b>Новое объявление</b>", "📣 <b>Нове оголошення</b>", "📣 <b>Nuevo anuncio</b>", "📣 <b>New post</b>"))
+    return (head + tx(lang, "\n\nПришли его одним сообщением, можно с фото. Напиши город, что предлагаешь, условия и контакт: "
+                            "@ник, телефон или ссылку. От 30 до 800 символов.",
+                      "\n\nНадішли його одним повідомленням, можна з фото. Напиши місто, що пропонуєш, умови й контакт: "
+                      "@нік, телефон або посилання. Від 30 до 800 символів.",
+                      "\n\nEnvíalo en un solo mensaje, puede llevar foto. Indica ciudad, qué ofreces, condiciones y contacto: "
+                      "@usuario, teléfono o enlace. De 30 a 800 caracteres.",
+                      "\n\nSend it in one message, a photo is fine. Include the city, what you offer, the terms and a contact: "
+                      "@username, phone or link. 30 to 800 characters."),
+            ikb([[btn(tx(lang, "Отмена", "Скасувати", "Cancelar", "Cancel"), "jb")]]))
+
+
+def post_error(lang: str, status: str) -> str:
+    return {
+        "short": tx(lang, "✏️ Слишком коротко: нужно хотя бы 30 символов. Напиши ещё раз.", "✏️ Занадто коротко: потрібно хоча б 30 символів. Напиши ще раз.",
+                    "✏️ Demasiado corto: mínimo 30 caracteres. Escríbelo de nuevo.", "✏️ Too short: at least 30 characters. Please write it again."),
+        "long": tx(lang, "✏️ Слишком длинно: максимум 800 символов. Сократи и пришли снова.", "✏️ Занадто довго: максимум 800 символів. Скороти й надішли знову.",
+                   "✏️ Demasiado largo: máximo 800 caracteres. Acórtalo y envíalo otra vez.", "✏️ Too long: 800 characters at most. Shorten it and send again."),
+        "contact": tx(lang, "✏️ Добавь контакт: @ник, телефон или ссылку, и пришли снова.", "✏️ Додай контакт: @нік, телефон або посилання, і надішли знову.",
+                      "✏️ Añade un contacto: @usuario, teléfono o enlace, y envíalo otra vez.", "✏️ Add a contact: @username, phone or link, and send it again."),
+        "resale": tx(lang, "🚫 Продавать записи (cita) и помощь с их получением здесь нельзя: запись бесплатна.",
+                     "🚫 Продавати записи (cita) і допомогу з їх отриманням тут не можна: запис безкоштовний.",
+                     "🚫 Aquí no se pueden vender citas ni ayuda para conseguirlas: son gratis.",
+                     "🚫 Selling appointments or help getting them isn't allowed here: they're free."),
+        "many": tx(lang, "⏳ У тебя уже 3 объявления на проверке. Дождись решения.", "⏳ У тебе вже 3 оголошення на перевірці. Дочекайся рішення.",
+                   "⏳ Ya tienes 3 anuncios en revisión. Espera la decisión.", "⏳ You already have 3 posts under review. Please wait for a decision."),
+    }.get(status, "")
+
+
+def post_preview(chat: int, post: dict, invoice: Optional[str]) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    pid, stars = post["id"], post["stars"]
+    text = (tx(lang, "👀 <b>Проверь объявление</b>", "👀 <b>Перевір оголошення</b>", "👀 <b>Revisa el anuncio</b>", "👀 <b>Check your post</b>")
+            + ("\n🖼" if post.get("photo") else "") + f"\n<blockquote>{esc(post['text'])}</blockquote>\n"
+            + (tx(lang, f"Стоимость: <b>{stars} ⭐</b>", f"Вартість: <b>{stars} ⭐</b>", f"Precio: <b>{stars} ⭐</b>", f"Price: <b>{stars} ⭐</b>") if stars
+               else tx(lang, "Бесплатно: первая вакансия.", "Безкоштовно: перша вакансія.", "Gratis: tu primer empleo.", "Free: your first job post.")))
+    rows = []
+    if stars and invoice:
+        rows.append([url(tx(lang, f"⭐️ Оплатить {stars}", f"⭐️ Сплатити {stars}", f"⭐️ Pagar {stars}", f"⭐️ Pay {stars}"), invoice, "success")])
+    elif not stars:
+        rows.append([btn(tx(lang, "✅ Отправить на проверку", "✅ Надіслати на перевірку", "✅ Enviar a revisión", "✅ Send for review"), f"js:{pid}", "success")])
+    rows.append([btn(tx(lang, "✏️ Написать заново", "✏️ Написати заново", "✏️ Escribir de nuevo", "✏️ Rewrite"), f"jn:{post['kind']}"),
+                 btn(tx(lang, "Отмена", "Скасувати", "Cancelar", "Cancel"), f"jx:{pid}")])
+    return text, ikb(rows)
+
+
+def post_sent(lang: str) -> str:
+    return tx(lang, "✅ Объявление на проверке. Обычно отвечаем в течение суток.", "✅ Оголошення на перевірці. Зазвичай відповідаємо протягом доби.",
+              "✅ Anuncio en revisión. Solemos responder en un día.", "✅ Your post is under review. We usually reply within a day.")
+
+
+def post_invoice(lang: str, kind: str) -> Tuple[str, str]:
+    title = (tx(lang, "Вакансия в канале", "Вакансія в каналі", "Empleo en el canal", "Job post in the channel") if kind == "job"
+             else tx(lang, "Объявление в канале", "Оголошення в каналі", "Anuncio en el canal", "Post in the channel"))
+    return (f"{config.BRAND}: {title}",
+            tx(lang, "Публикация после проверки. Если откажем, звёзды вернутся.", "Публікація після перевірки. Якщо відмовимо, зірки повернуться.",
+               "Se publica tras la revisión. Si lo rechazamos, devolvemos las estrellas.", "Published after review. If we reject it, your Stars come back."))
+
+
+def post_published(lang: str) -> str:
+    return tx(lang, "✅ <b>Объявление опубликовано</b>", "✅ <b>Оголошення опубліковано</b>", "✅ <b>Anuncio publicado</b>", "✅ <b>Your post is live</b>")
+
+
+def post_open_btn(lang: str) -> str:
+    return tx(lang, "📢 Открыть пост", "📢 Відкрити пост", "📢 Abrir la publicación", "📢 Open the post")
+
+
+def post_rejected(lang: str, reason: str, paid: bool) -> str:
+    why = {"contact": tx(lang, "нет понятного контакта", "немає зрозумілого контакту", "falta un contacto claro", "no clear contact"),
+           "scam": tx(lang, "похоже на обман или продажу записей", "схоже на обман або продаж записів",
+                      "parece un engaño o venta de citas", "it looks like a scam or appointment resale"),
+           }.get(reason, tx(lang, "не подходит под правила канала", "не відповідає правилам каналу", "no cumple las normas del canal", "it doesn't fit the channel rules"))
+    return (tx(lang, f"🚫 <b>Объявление отклонено</b>: {why}.", f"🚫 <b>Оголошення відхилено</b>: {why}.", f"🚫 <b>Anuncio rechazado</b>: {why}.", f"🚫 <b>Post rejected</b>: {why}.")
+            + (tx(lang, "\nЗвёзды возвращаются на твой баланс.", "\nЗірки повертаються на твій баланс.", "\nTus estrellas vuelven a tu saldo.", "\nYour Stars are going back to your balance.") if paid else ""))
+
+
+def my_posts(chat: int) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    marks = {"review": "⏳", "published": "✅", "rejected": "🚫"}
+    items = [f"{marks.get(p['status'], '•')} {esc(p['text'][:60])}…" for p in store.posts_of(chat)]
+    text = tx(lang, "📋 <b>Мои объявления</b>", "📋 <b>Мої оголошення</b>", "📋 <b>Mis anuncios</b>", "📋 <b>My posts</b>") + "\n\n"
+    text += ("<blockquote>" + "\n".join(items) + "</blockquote>\n"
+             + tx(lang, "⏳ на проверке · ✅ опубликовано · 🚫 отклонено", "⏳ на перевірці · ✅ опубліковано · 🚫 відхилено",
+                  "⏳ en revisión · ✅ publicado · 🚫 rechazado", "⏳ under review · ✅ published · 🚫 rejected")) if items else \
+        tx(lang, "Пока объявлений нет.", "Поки оголошень немає.", "Aún no hay anuncios.", "No posts yet.")
+    return text, ikb([[btn(tx(lang, "⬅️ Назад", "⬅️ Назад", "⬅️ Atrás", "⬅️ Back"), "jb"), home_btn(lang)]])
+
+
+def partner_view(chat: int) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    return (tx(lang, "🤝 <b>Партнёрам и рекламодателям</b>\n\nНаша аудитория: люди в Испании, которые оформляют права, документы и ищут работу и услуги."
+                     "\n<blockquote>📢 Посты в канале\n💬 Предложения в боте, только тем, кто согласился\n🎟 Совместные акции и промокоды</blockquote>\n"
+                     "Напиши одним сообщением: кто вы, что предлагаете и как с вами связаться.",
+               "🤝 <b>Партнерам і рекламодавцям</b>\n\nНаша аудиторія: люди в Іспанії, які оформлюють права й документи та шукають роботу й послуги."
+               "\n<blockquote>📢 Пости в каналі\n💬 Пропозиції в боті, лише тим, хто погодився\n🎟 Спільні акції та промокоди</blockquote>\n"
+               "Напиши одним повідомленням: хто ви, що пропонуєте і як із вами зв’язатися.",
+               "🤝 <b>Socios y anunciantes</b>\n\nNuestro público: personas en España que tramitan permisos y documentos y buscan empleo y servicios."
+               "\n<blockquote>📢 Publicaciones en el canal\n💬 Ofertas en el bot, solo a quien las acepta\n🎟 Promociones y códigos conjuntos</blockquote>\n"
+               "Escribe en un mensaje quiénes sois, qué ofrecéis y cómo contactaros.",
+               "🤝 <b>Partners and advertisers</b>\n\nOur audience: people in Spain sorting out licences and documents and looking for jobs and services."
+               "\n<blockquote>📢 Channel posts\n💬 Offers in the bot, only to people who agreed\n🎟 Joint promotions and promo codes</blockquote>\n"
+               "Tell us in one message who you are, what you offer and how to reach you."),
+            ikb([[btn(tx(lang, "Отмена", "Скасувати", "Cancelar", "Cancel"), "jb")]]))
+
+
+def partner_sent(lang: str) -> str:
+    return tx(lang, "✅ Заявка передана. Ответим здесь же.", "✅ Заявку передано. Відповімо тут же.", "✅ Solicitud enviada. Responderemos aquí.", "✅ Request sent. We'll reply here.")
+
+
+# ---------- памятка по TIE ----------
+
+TAX_URL = "https://sede.policia.gob.es:38089/Tasa790_012/"
+
+
+def tie_guide(chat: int) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    text = tx(lang,
+              "📋 <b>Запись на TIE: как не потерять время</b>\n\n"
+              "<b>1. Где записываться</b>\n<blockquote>Официальный сайт → твоя провинция → Trámites Policía Nacional → "
+              "<b>POLICÍA-TOMA DE HUELLAS</b>. Для временной защиты бывает отдельный пункт: POLICÍA TARJETA CONFLICTO UCRANIA.</blockquote>\n"
+              "<b>2. Что держать под рукой</b>\n<blockquote>NIE или паспорт, имя точно как в документе, страна, телефон и email. "
+              "Кнопку «назад» в браузере не нажимай: при ошибке начни сначала. Если есть «Cualquier oficina», выбирай его: мест больше.</blockquote>\n"
+              "<b>3. Что взять на визит</b>\n<blockquote>• оригинал паспорта или cédula\n• прежняя TIE, если есть\n• свежее цветное фото на белом фоне\n"
+              "• empadronamiento, если сменился адрес\n• бланк EX-17\n• оплаченная пошлина: модель 790, код 012</blockquote>\n"
+              "<b>4. Если не можешь прийти</b>\n<blockquote>Отмени на том же сайте: «Anular Cita» и номер justificante. В день визита отменить уже нельзя.</blockquote>\n"
+              "<b>Málaga</b>\n<blockquote>С 8 октября 2026 после положительной резолюции запись на TIE назначается автоматически, приглашение приходит по SMS или email. "
+              "Если его нет около 20 дней, запишись сам. Для условных разрешений это не работает.</blockquote>\n"
+              "<i>По записке Extranjería Málaga. В других провинциях детали могут отличаться, сверяйся с официальным сайтом. Запись бесплатна: никому не плати за неё.</i>",
+              "📋 <b>Запис на TIE: як не втратити час</b>\n\n"
+              "<b>1. Де записуватися</b>\n<blockquote>Офіційний сайт → твоя провінція → Trámites Policía Nacional → "
+              "<b>POLICÍA-TOMA DE HUELLAS</b>. Для тимчасового захисту буває окремий пункт: POLICÍA TARJETA CONFLICTO UCRANIA.</blockquote>\n"
+              "<b>2. Що тримати під рукою</b>\n<blockquote>NIE або паспорт, ім’я точно як у документі, країна, телефон і email. "
+              "Кнопку «назад» у браузері не натискай: при помилці почни спочатку. Якщо є «Cualquier oficina», обирай його: місць більше.</blockquote>\n"
+              "<b>3. Що взяти на візит</b>\n<blockquote>• оригінал паспорта або cédula\n• попередня TIE, якщо є\n• свіже кольорове фото на білому тлі\n"
+              "• empadronamiento, якщо змінилася адреса\n• бланк EX-17\n• сплачений збір: модель 790, код 012</blockquote>\n"
+              "<b>4. Якщо не можеш прийти</b>\n<blockquote>Скасуй на тому ж сайті: «Anular Cita» і номер justificante. У день візиту скасувати вже не можна.</blockquote>\n"
+              "<b>Málaga</b>\n<blockquote>З 8 жовтня 2026 після позитивної резолюції запис на TIE призначається автоматично, запрошення надходить через SMS або email. "
+              "Якщо його немає близько 20 днів, запишися сам. Для умовних дозволів це не працює.</blockquote>\n"
+              "<i>За запискою Extranjería Málaga. В інших провінціях деталі можуть відрізнятися, звіряйся з офіційним сайтом. Запис безкоштовний: нікому за нього не плати.</i>",
+              "📋 <b>Cita para la TIE: cómo no perder tiempo</b>\n\n"
+              "<b>1. Dónde pedirla</b>\n<blockquote>Web oficial → tu provincia → Trámites Policía Nacional → "
+              "<b>POLICÍA-TOMA DE HUELLAS</b>. Para la protección temporal puede haber una opción propia: POLICÍA TARJETA CONFLICTO UCRANIA.</blockquote>\n"
+              "<b>2. Qué tener a mano</b>\n<blockquote>NIE o pasaporte, nombre exacto como en el documento, país, teléfono y email. "
+              "No uses el botón «atrás» del navegador: si hay error, empieza de nuevo. Si aparece «Cualquier oficina», elígela: hay más plazas.</blockquote>\n"
+              "<b>3. Qué llevar a la cita</b>\n<blockquote>• pasaporte o cédula originales\n• TIE anterior, si la tienes\n• foto reciente en color con fondo blanco\n"
+              "• empadronamiento, si cambiaste de domicilio\n• impreso EX-17\n• tasa pagada: modelo 790, código 012</blockquote>\n"
+              "<b>4. Si no puedes ir</b>\n<blockquote>Anúlala en la misma web: «Anular Cita» y número de justificante. El mismo día ya no se puede anular.</blockquote>\n"
+              "<b>Málaga</b>\n<blockquote>Desde el 8 de octubre de 2026, tras una resolución favorable, la cita para la TIE se asigna sola y llega por SMS o email. "
+              "Si en unos 20 días no llega, pídela tú. No vale para concesiones condicionadas.</blockquote>\n"
+              "<i>Según la nota de la Oficina de Extranjería de Málaga. En otras provincias puede variar: compruébalo en la web oficial. La cita es gratis: no pagues a nadie por ella.</i>",
+              "📋 <b>TIE appointment: how not to lose time</b>\n\n"
+              "<b>1. Where to book</b>\n<blockquote>Official website → your province → Trámites Policía Nacional → "
+              "<b>POLICÍA-TOMA DE HUELLAS</b>. Temporary protection may have its own option: POLICÍA TARJETA CONFLICTO UCRANIA.</blockquote>\n"
+              "<b>2. What to have ready</b>\n<blockquote>NIE or passport, your name exactly as in the document, country, phone and email. "
+              "Don't use the browser's back button: if there's an error, start over. If “Cualquier oficina” is offered, pick it: more slots.</blockquote>\n"
+              "<b>3. What to bring</b>\n<blockquote>• original passport or cédula\n• previous TIE, if any\n• recent colour photo on a white background\n"
+              "• empadronamiento, if your address changed\n• EX-17 form\n• paid fee: form 790, code 012</blockquote>\n"
+              "<b>4. If you can't go</b>\n<blockquote>Cancel on the same website: “Anular Cita” and your justificante number. You can't cancel on the day itself.</blockquote>\n"
+              "<b>Málaga</b>\n<blockquote>Since 8 October 2026, after a favourable resolution the TIE appointment is assigned automatically and arrives by SMS or email. "
+              "If nothing comes in about 20 days, book it yourself. Conditional permits are not covered.</blockquote>\n"
+              "<i>Based on the note from the Extranjería office in Málaga. Details may differ in other provinces, so check the official website. Appointments are free: don't pay anyone for one.</i>")
+    return text, ikb([[url(tx(lang, "📝 Сайт записи", "📝 Сайт запису", "📝 Web de citas", "📝 Booking site"), signals.ICP_URL, "primary"),
+                       url(tx(lang, "💶 Пошлина 790", "💶 Збір 790", "💶 Tasa 790", "💶 Fee 790"), TAX_URL)],
+                      [btn(tx(lang, "⬅️ Документы", "⬅️ Документи", "⬅️ Documentos", "⬅️ Documents"), "dc"), home_btn(lang)]])
+
+
+# ---------- окна проверки ----------
+
+def windows_view(chat: int, note: str = "") -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    mine, limit = signals.windows_of(chat), signals.window_limit(chat)
+    text = (tx(lang, "⏰ <b>Окна проверки</b>\n\nСайт записи бот не смотрит, но может напоминать тебе проверить его самому в выбранные часы (время Мадрида). "
+                     "Чем чаще смотришь, тем выше шанс: места разбирают за минуты.",
+               "⏰ <b>Вікна перевірки</b>\n\nСайт запису бот не дивиться, але може нагадувати тобі перевірити його самому у вибрані години (час Мадрида). "
+               "Що частіше дивишся, то вищий шанс: місця розбирають за лічені хвилини.",
+               "⏰ <b>Ventanas de revisión</b>\n\nEl bot no mira la web de citas, pero puede recordarte que la revises tú a las horas que elijas (hora de Madrid). "
+               "Cuanto más la mires, más opciones: las plazas vuelan en minutos.",
+               "⏰ <b>Check windows</b>\n\nThe bot doesn't look at the booking site, but it can remind you to check it yourself at the hours you choose (Madrid time). "
+               "The more often you look, the better: slots go within minutes.")
+            + "\n\n" + tx(lang, f"Выбрано: <b>{len(mine)}/{limit}</b>", f"Вибрано: <b>{len(mine)}/{limit}</b>", f"Elegidas: <b>{len(mine)}/{limit}</b>", f"Chosen: <b>{len(mine)}/{limit}</b>"))
+    if not signals.subs_of(chat):
+        text += "\n" + tx(lang, "<i>Сначала выбери запись, за которой следишь.</i>", "<i>Спочатку обери запис, за яким стежиш.</i>",
+                          "<i>Primero elige la cita que quieres seguir.</i>", "<i>First choose the appointment you're tracking.</i>")
+    if note:
+        text += f"\n\n{note}"
+    cells = [btn(("✅ " if h in mine else "") + f"{h:02d}:00", f"dw:{h}") for h in signals.WINDOWS]
+    return text, ikb([cells[:3], cells[3:], [btn(tx(lang, "⬅️ Документы", "⬅️ Документи", "⬅️ Documentos", "⬅️ Documents"), "dc"), home_btn(lang)]])
+
+
+def window_limit_note(lang: str) -> str:
+    return tx(lang, f"💎 Бесплатно — {signals.FREE_WINDOWS} окно, с Premium — до {signals.TOP_WINDOWS}",
+              f"💎 Безкоштовно — {signals.FREE_WINDOWS} вікно, із Premium — до {signals.TOP_WINDOWS}",
+              f"💎 Gratis: {signals.FREE_WINDOWS} ventana; con Premium, hasta {signals.TOP_WINDOWS}",
+              f"💎 Free: {signals.FREE_WINDOWS} window; with Premium, up to {signals.TOP_WINDOWS}")
+
+
+def window_alert(chat: int) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    items = "\n".join(f"{doc_title(lang, doc)} · <b>{esc(signals.PROVINCES[province])}</b>" for province, doc in signals.subs_of(chat)[:5])
+    return (tx(lang, "⏰ <b>Время проверить запись</b>", "⏰ <b>Час перевірити запис</b>", "⏰ <b>Hora de mirar las citas</b>", "⏰ <b>Time to check appointments</b>")
+            + f"\n{items}\n\n"
+            + tx(lang, "Если увидишь места, нажми кнопку: все, кто ждёт, сразу получат сигнал.", "Якщо побачиш місця, натисни кнопку: усі, хто чекає, одразу отримають сигнал.",
+                 "Si ves plazas, pulsa el botón: quienes esperan recibirán la señal al momento.", "If you see slots, tap the button: everyone waiting gets a signal right away."),
+            ikb([[url(tx(lang, "📝 Открыть сайт записи", "📝 Відкрити сайт запису", "📝 Abrir la web de citas", "📝 Open the booking site"), signals.ICP_URL, "primary")],
+                 [btn(tx(lang, "🟢 Я вижу свободные места", "🟢 Я бачу вільні місця", "🟢 Veo plazas libres", "🟢 I see free slots"), "dp:r:0", "success")],
+                 [btn(tx(lang, "⏰ Настроить", "⏰ Налаштувати", "⏰ Ajustar", "⏰ Adjust"), "dw"), btn(hide_label(lang), "hide")]]))
+
+
+# ---------- статистика офисов ----------
+
+def stats_view(chat: int) -> Tuple[str, dict]:
+    import stats
+    lang = lang_of(chat)
+    head = tx(lang, "📊 <b>Где чаще появляются места</b> · 30 дней", "📊 <b>Де частіше з’являються місця</b> · 30 днів",
+              "📊 <b>Dónde aparecen más plazas</b> · 30 días", "📊 <b>Where slots appear most</b> · 30 days")
+    items = []
+    for i, g in enumerate(stats.offices()[:10], 1):
+        times = pl(lang, g["opens"], ("раз", "раза", "раз"), ("раз", "рази", "разів"), ("vez", "veces"), ("time", "times"))
+        held = fmt_dur(g["avg"], lang) if g["avg"] else "—"
+        items.append(f"{i}. <b>{esc(city(g['centro']))}</b> · {esc(area_label(g['area']))}\n{times} · ~{g['best']}:00 · ⌛️ {held}")
+    body = ("<blockquote>" + "\n".join(items) + "</blockquote>\n"
+            + tx(lang, "<i>Считаем только офисы, за которыми следят пользователи. Время Мадрида.</i>", "<i>Рахуємо лише офіси, за якими стежать користувачі. Час Мадрида.</i>",
+                 "<i>Solo cuentan las oficinas que siguen los usuarios. Hora de Madrid.</i>", "<i>Only offices our users track are counted. Madrid time.</i>")) if items else \
+        tx(lang, "Пока мало данных. Статистика появится, как только в офисах откроются места.", "Поки мало даних. Статистика з’явиться, щойно в офісах відкриються місця.",
+           "Aún hay pocos datos. Las estadísticas llegarán cuando aparezcan plazas.", "Not enough data yet. Statistics will appear once slots open up.")
+    return f"{head}\n\n{body}", ikb([[btn("📡 " + tx(lang, "Радар", "Радар", "Radar", "Radar"), "rd"), home_btn(lang)]])
+
+
+# ---------- гарантия ----------
+
+def guarantee_note(lang: str) -> str:
+    return tx(lang, f"🛡 Гарантия: если за {premium.GUARANTEE_FROM} дней после первой оплаты не будет ни одного уведомления, верну звёзды.",
+              f"🛡 Гарантія: якщо за {premium.GUARANTEE_FROM} днів після першої оплати не буде жодного сповіщення, поверну зірки.",
+              f"🛡 Garantía: si en {premium.GUARANTEE_FROM} días desde el primer pago no llega ningún aviso, te devuelvo las estrellas.",
+              f"🛡 Guarantee: if there isn't a single alert within {premium.GUARANTEE_FROM} days of your first payment, I'll refund your Stars.")
+
+
+def guarantee_confirm(chat: int) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    return (tx(lang, "🛡 <b>Вернуть звёзды?</b>\nЗа это время бот не нашёл дат по твоим офисам. Premium отключится, автопродление тоже. Вернуть можно один раз.",
+               "🛡 <b>Повернути зірки?</b>\nЗа цей час бот не знайшов дат за твоїми офісами. Premium вимкнеться, автопродовження теж. Повернути можна один раз.",
+               "🛡 <b>¿Devolver las estrellas?</b>\nEn este tiempo el bot no encontró fechas en tus oficinas. Premium y la renovación se desactivarán. Solo se puede una vez.",
+               "🛡 <b>Refund your Stars?</b>\nThe bot found no dates for your offices in this time. Premium and auto-renewal will turn off. This works only once."),
+            ikb([[btn(tx(lang, "Да, вернуть", "Так, повернути", "Sí, devolver", "Yes, refund"), "gr!", "danger"),
+                  btn(tx(lang, "Отмена", "Скасувати", "Cancelar", "Cancel"), "pr")]]))
+
+
+def guarantee_result(lang: str, ok: bool) -> str:
+    return (tx(lang, "✅ Звёзды возвращаются на твой баланс.", "✅ Зірки повертаються на твій баланс.", "✅ Tus estrellas vuelven a tu saldo.", "✅ Your Stars are going back to your balance.") if ok
+            else tx(lang, "😕 Вернуть не получилось. Напиши в /paysupport.", "😕 Повернути не вдалося. Напиши в /paysupport.",
+                    "😕 No se pudo devolver. Escribe a /paysupport.", "😕 The refund didn't work. Please write to /paysupport."))

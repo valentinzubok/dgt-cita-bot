@@ -12,9 +12,11 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 
+import channel
 import config
 import dgt
 import premium
+import signals
 import store
 import tg
 import views
@@ -31,6 +33,8 @@ journal: deque = deque(maxlen=300)          # события для админк
 DOWN_AFTER = 3                               # столько ошибок подряд — считаем, что сайт недоступен
 PROBE_MIN, PROBE_MAX = 5 * 60, 60 * 60       # пауза между пробами при сбое: от 5 минут до часа
 PACE = (8, 14)                               # пауза между офисами, секунд
+_window_sent: Dict[int, Tuple[str, int]] = {}  # кому уже напомнили в этот час
+_window_msg: Dict[int, int] = {}               # прошлое напоминание: в чате остаётся только свежее
 
 
 def event(text: str, kind: str = "info") -> None:
@@ -233,6 +237,7 @@ def process(cid: str, area: str, results: Optional[list], err, cards: Dict[int, 
         days = views.all_days(results)
         if days and not st.get("days"):
             event(f"🟢 Появились даты: {name} — {len(days)} дн.", "dates")
+            channel.on_opened(cid, area)
         current = results[0]["status"] if results else dgt.UNKNOWN
         if current == dgt.UNKNOWN and not st.get("unknown"):
             st["unknown"] = True
@@ -291,9 +296,37 @@ def reminders() -> None:
     while True:
         try:
             send_reminders()
+            send_windows()
         except Exception:
             log.exception("ошибка напоминаний")
         time.sleep(300)
+
+
+def channel_loop() -> None:
+    """Посты о датах в канале: готовый пост проверяем раз в минуту."""
+    while True:
+        time.sleep(60)
+        try:
+            channel.tick(offices)
+        except Exception:
+            log.exception("ошибка канала")
+
+
+def send_windows() -> None:
+    """Просьбы проверить сайт записи самому в выбранные часы. Бот к этому сайту не обращается."""
+    now = datetime.now(config.TZ)
+    stamp = (store.today_key(), now.hour)
+    for c in store.all_chats():
+        chat = c["chat"]
+        if not c.get("windows") or _window_sent.get(chat) == stamp or c.get("role") in ("banned", "pending"):
+            continue
+        hours = signals.windows_of(chat)[:signals.window_limit(chat)]
+        if now.hour in hours and signals.subs_of(chat):
+            _window_sent[chat] = stamp
+            tg.delete(chat, _window_msg.pop(chat, None))
+            mid = tg.send(chat, *views.window_alert(chat), silent=is_quiet(chat))
+            if mid:
+                _window_msg[chat] = mid
 
 
 def send_reminders() -> None:

@@ -120,6 +120,19 @@ SCHEMA = [
         sig BIGINT NOT NULL,
         chat BIGINT NOT NULL,
         PRIMARY KEY (sig, chat))""",
+    f"""CREATE TABLE IF NOT EXISTS board (
+        id {_PK},
+        chat BIGINT NOT NULL,
+        kind TEXT NOT NULL,
+        text TEXT NOT NULL,
+        photo TEXT,
+        stars INTEGER NOT NULL DEFAULT 0,
+        charge TEXT,
+        status TEXT NOT NULL,
+        reason TEXT,
+        message BIGINT,
+        created_at BIGINT NOT NULL,
+        decided_at BIGINT)""",
     """CREATE TABLE IF NOT EXISTS reward_ledger (
         key TEXT PRIMARY KEY,
         created_at BIGINT NOT NULL)""",
@@ -182,15 +195,19 @@ MIGRATIONS = [
     ("chats", "ref_done_at", "BIGINT"),
     ("chats", "ads_ok", "INTEGER NOT NULL DEFAULT 0"),
     ("chats", "last_ad", "BIGINT NOT NULL DEFAULT 0"),
+    ("chats", "trial_at", "BIGINT NOT NULL DEFAULT 0"),
+    ("chats", "paid_at", "BIGINT NOT NULL DEFAULT 0"),
+    ("chats", "paid_alerts", "INTEGER NOT NULL DEFAULT 0"),
+    ("chats", "windows", "TEXT"),
 ]
 SUB_FIELDS = {"max_days", "paused", "last", "checked_at", "fails", "alert_msg", "area_label",
               "booked_date", "booked_time", "reminded"}
 CHAT_FIELDS = {"name", "username", "quiet", "role", "screen", "last_seen", "lang", "alerts", "bookings", "source",
                "premium_until", "prem_notice", "sub_charge", "sub_active", "ref_code", "ref_by", "ref_done_at",
-               "ads_ok", "last_ad"}
+               "ads_ok", "last_ad", "trial_at", "paid_at", "paid_alerts", "windows"}
 INT_SETTINGS = {"interval", "interval_premium", "free_subs", "max_subs", "checks_paused", "notify_new", "maintenance",
                 "daily_report", "price_7", "price_30", "price_90", "ref_hours", "ref_cap", "ref_task", "ad_gap",
-                "free_radar_day"}
+                "free_radar_day", "trial_hours", "channel_delay", "post_job", "post_ad"}
 DEFAULTS = {
     "interval": 30,                # минут между проверками офиса (бесплатно)
     "interval_premium": 5,         # минут между проверками офиса, за которым следит подписчик Premium
@@ -211,6 +228,11 @@ DEFAULTS = {
     "ref_cap": 10,                 # максимум наград за друзей за 30 дней
     "ref_task": 0,                 # id задания-канала, обязательного для награды за друзей
     "ad_gap": 24,                  # минимум часов между рекламой одному человеку
+    "trial_hours": 72,             # пробный Premium, один раз на человека; 0 — выключен
+    "channel": "@oksita_news",     # канал бота: даты и объявления
+    "channel_delay": 30,           # минут до поста о датах в канале; 0 — не публиковать
+    "post_job": 99,                # вакансия в канале, звёзд (первая бесплатно)
+    "post_ad": 249,                # услуга или реклама в канале, звёзд
     "avatar_sha": "",              # какая картинка уже стоит на аватаре бота
     "ledger_salt": "",             # ключ хешей в reward_ledger, создаётся при первом запуске
 }
@@ -553,6 +575,8 @@ def delete_chat(chat: int) -> None:
                 sig["chat"] = 0
     write("DELETE FROM signal_subs WHERE chat = ?", (chat,))
     write("DELETE FROM signal_votes WHERE chat = ?", (chat,))
+    write("DELETE FROM board WHERE chat = ? AND status <> 'published'", (chat,))
+    write("UPDATE board SET chat = 0 WHERE chat = ?", (chat,))
     write("UPDATE signals SET chat = 0 WHERE chat = ?", (chat,))
     now = int(time.time())
     for key in hashes:
@@ -743,6 +767,11 @@ def office_changed(centro: str, area: str, available: bool, days: int) -> None:
             _offices[(centro, area)] = None
         write("UPDATE events SET closed_at = ? WHERE id = ?", (now, open_event))
         write("UPDATE offices SET open_event = NULL WHERE centro = ? AND area = ?", (centro, area))
+
+
+def recent_events(since: int) -> List[dict]:
+    flush(3)
+    return q("SELECT centro, area, opened_at, closed_at, days FROM events WHERE opened_at > ?", (since,))
 
 
 def events(centro: str, area: str, limit: int = 30) -> List[dict]:
@@ -1059,3 +1088,38 @@ def ad_click(cid: int, chat: int) -> None:
     write("INSERT INTO ad_clicks (campaign, chat, created_at) VALUES (?, ?, ?) ON CONFLICT (campaign, chat) DO NOTHING",
           (cid, chat, int(time.time())))
     write("UPDATE campaigns SET clicks = clicks + 1 WHERE id = ?", (cid,))
+
+
+# ---------- объявления в канале ----------
+
+def add_post(chat: int, kind: str, text: str, photo: Optional[str], stars: int) -> dict:
+    flush(3)
+    row = q1("INSERT INTO board (chat, kind, text, photo, stars, status, created_at) VALUES (?, ?, ?, ?, ?, 'draft', ?) RETURNING id",
+             (chat, kind, text, photo, stars, int(time.time())))
+    return get_post(row["id"])
+
+
+def get_post(pid: int) -> Optional[dict]:
+    return q1("SELECT * FROM board WHERE id = ?", (pid,))
+
+
+def set_post(pid: int, **fields) -> None:
+    fields = {k: v for k, v in fields.items() if k in ("status", "charge", "reason", "message", "decided_at")}
+    if fields:
+        q(f"UPDATE board SET {', '.join(f'{k} = ?' for k in fields)} WHERE id = ?", (*fields.values(), pid))
+
+
+def posts(status: str, limit: int = 20) -> List[dict]:
+    return q("SELECT * FROM board WHERE status = ? ORDER BY id DESC LIMIT ?", (status, limit))
+
+
+def posts_of(chat: int, limit: int = 8) -> List[dict]:
+    return q("SELECT * FROM board WHERE chat = ? AND status <> 'draft' ORDER BY id DESC LIMIT ?", (chat, limit))
+
+
+def free_job_used(chat: int) -> bool:
+    return bool(q1("SELECT id FROM board WHERE chat = ? AND kind = 'job' AND stars = 0 AND status IN ('review', 'published') LIMIT 1", (chat,)))
+
+
+def post_counts() -> Dict[str, int]:
+    return {r["status"]: r["n"] for r in q("SELECT status, COUNT(*) AS n FROM board GROUP BY status")}

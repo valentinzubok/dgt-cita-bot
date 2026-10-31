@@ -23,6 +23,8 @@ from typing import Dict, Optional, Tuple
 
 import actions
 import admin
+import board
+import channel
 import checker
 import dgt
 import premium
@@ -39,6 +41,8 @@ from views import tx
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("bot")
 
+SECTIONS = ("trial", "post", "partner", "stats", "tie")  # разделы с прямыми ссылками ?start=… и командами
+opens: Dict[int, str] = {}  # раздел из ссылки: откроется после выбора языка
 LEGACY_BUTTONS = {"➕ Добавить офис": "/add", "📋 Мои подписки": "/list", "🔄 Проверить сейчас": "/check",
                   "⚙️ Настройки": "/settings", "❓ Помощь": "/help"}  # кнопки под полем ввода из первой версии
 ALLOWED_UPDATES = ["message", "callback_query", "pre_checkout_query", "subscription"]
@@ -244,7 +248,11 @@ def handle_start_arg(chat: int, arg: str, is_new: bool) -> None:
     """Пригласительная ссылка (r_…), промо-ссылка (promo_…) или метка рекламного источника."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,60}", arg):
         return
-    if arg.startswith("promo_"):
+    if arg in SECTIONS:
+        opens[chat] = arg
+        if is_new:
+            store.set_chat(chat, source=arg)
+    elif arg.startswith("promo_"):
         status, hours = rewards.apply_promo(chat, arg[6:])
         notes[chat] = ("promo", status, hours)
         if is_new:
@@ -255,6 +263,21 @@ def handle_start_arg(chat: int, arg: str, is_new: bool) -> None:
             notes[chat] = ("ref",)
     elif is_new:
         store.set_chat(chat, source=arg[:40])
+
+
+def open_section(chat: int, section: str, mid: Optional[int] = None) -> None:
+    """Раздел по прямой ссылке или команде."""
+    if section == "trial":
+        tg.show(chat, *views.trial_view(chat), mid=mid, banner=views.banner("trial"))
+    elif section == "post":
+        tg.show(chat, *views.board_view(chat), mid=mid, banner=views.banner("board"))
+    elif section == "partner":
+        waiting[chat] = {"kind": "partner"}
+        tg.show(chat, *views.partner_view(chat), mid=mid, banner=views.banner("board"))
+    elif section == "stats":
+        tg.show(chat, *views.stats_view(chat), mid=mid)
+    elif section == "tie":
+        tg.show(chat, *views.tie_guide(chat), mid=mid, banner=views.banner("docs"))
 
 
 def consume_note(chat: int) -> str:
@@ -322,11 +345,16 @@ def on_message(msg: dict) -> None:
         return None
 
     w = waiting.get(chat)
+    if w and w["kind"] == "post" and not cmd:
+        return on_post_text(chat, lang, w, text or (msg.get("caption") or "").strip(), msg)
     if w and not cmd and text:
         return on_waited_text(chat, c, lang, w, text)
 
     if cmd in ("/start", "/menu"):
-        home(chat, note=consume_note(chat))
+        section = opens.pop(chat, None)
+        open_section(chat, section) if section else home(chat, note=consume_note(chat))
+    elif cmd[1:] in SECTIONS:
+        open_section(chat, cmd[1:])
     elif cmd in ("/add", "/centros"):
         mode.pop(chat, None)
         search(chat, arg, token) if arg.strip() else tg.show(chat, *views.offices(chat, 0))
@@ -376,6 +404,41 @@ def on_message(msg: dict) -> None:
     return None
 
 
+def on_post_text(chat: int, lang: str, w: dict, text: str, msg: dict) -> None:
+    """Текст объявления. Фото не обязательно, берём самое большое."""
+    status = board.check_text(text)
+    if status != "ok":
+        tg.show(chat, views.post_error(lang, status), ikb([[btn(tx(lang, "Отмена", "Скасувати", "Cancelar", "Cancel"), "jb")]]))
+        return
+    waiting.pop(chat, None)
+    photo = (msg.get("photo") or [{}])[-1].get("file_id")
+    post = board.create(chat, w["post_kind"], text, photo)
+    tg.show(chat, *views.post_preview(chat, post, board.invoice(post, lang) if post["stars"] else None))
+
+
+def board_action(chat: int, mid: int, kind: str, rest: str, lang: str) -> Tuple[Optional[str], bool]:
+    """Объявления: jb — раздел, jn — новое, js — отправить бесплатное, jx — отменить, jm — мои."""
+    post = store.get_post(int(rest)) if rest.isdigit() else None
+    mine = bool(post) and post["chat"] == chat and post["status"] == "draft"
+    if kind == "jb":
+        tg.show(chat, *views.board_view(chat), mid=mid, banner=views.banner("board"))
+    elif kind == "jn" and rest in board.KINDS:
+        if board.open_count(chat) >= board.MAX_OPEN:
+            return views.post_error(lang, "many"), True
+        waiting[chat] = {"kind": "post", "post_kind": rest}
+        tg.show(chat, *views.post_prompt(chat, rest), mid=mid)
+    elif kind == "js" and mine and not post["stars"]:
+        board.to_moderation(post)
+        tg.show(chat, *views.board_view(chat, views.post_sent(lang)), mid=mid, banner=views.banner("board"))
+    elif kind == "jx":
+        if mine:
+            store.set_post(post["id"], status="cancelled")
+        tg.show(chat, *views.board_view(chat), mid=mid, banner=views.banner("board"))
+    elif kind == "jm":
+        tg.show(chat, *views.my_posts(chat), mid=mid)
+    return None, False
+
+
 def on_waited_text(chat: int, c: dict, lang: str, w: dict, text: str) -> None:
     if w["kind"] == "book":
         sub = store.get_sub(w["sid"])
@@ -395,6 +458,12 @@ def on_waited_text(chat: int, c: dict, lang: str, w: dict, text: str) -> None:
         if status == "ok":
             checker.event(f"🎟 Промокод: {text[:32]} ({c.get('name') or chat})", "user")
         tg.show(chat, *views.premium_view(chat, views.promo_result(lang, status, hours)), banner=views.banner("premium"))
+    elif w["kind"] == "partner":
+        waiting.pop(chat, None)
+        checker.event(f"🤝 Заявка партнёра: {c.get('name') or chat}", "user")
+        checker.notify_admins(f"🤝 <b>Заявка партнёра</b>\n{admin.uname(c)} · <code>{chat}</code>\n\n{views.esc(text[:1500])}",
+                              [[btn("✉️ Ответить", f"ad:um:{chat}"), btn("👤 Карточка", f"ad:uc:{chat}")]], silent=False)
+        tg.show(chat, *views.board_view(chat, views.partner_sent(lang)), banner=views.banner("board"))
     elif w["kind"] == "support":
         waiting.pop(chat, None)
         checker.notify_admins(f"💳 <b>Вопрос по оплате</b>\n{admin.uname(c)} · <code>{chat}</code>\n\n{views.esc(text[:1000])}",
@@ -406,6 +475,11 @@ def on_waited_text(chat: int, c: dict, lang: str, w: dict, text: str) -> None:
 
 def on_paid(msg: dict) -> None:
     chat = msg["chat"]["id"]
+    if (msg["successful_payment"].get("invoice_payload") or "").startswith("post:"):
+        if board.on_paid(msg):
+            lang = views.lang_of(chat)
+            tg.show(chat, *views.board_view(chat, views.post_sent(lang)), banner=views.banner("board"))
+        return
     done = premium.on_payment(msg)
     if not done:
         return
@@ -460,6 +534,8 @@ def route_callback(cb: dict, chat: int, mid: int, data: str) -> Tuple[Optional[s
         premium.apply_menu_button(chat)
         if rest.endswith(":st"):
             tg.show(chat, *views.settings_view(chat), mid=mid)
+        elif chat in opens:
+            open_section(chat, opens.pop(chat), mid)
         else:
             home(chat, mid, consume_note(chat))
     elif data == "lp":
@@ -523,6 +599,39 @@ def route_callback(cb: dict, chat: int, mid: int, data: str) -> Tuple[Optional[s
                                              "😕 Не вдалося вимкнути, спробуй пізніше.",
                                                    "😕 No se pudo desactivar, inténtalo más tarde.",
                                                    "😕 Couldn't turn it off, try again later.")), mid=mid, banner=views.banner("premium"))
+    elif data == "tr":
+        tg.show(chat, *views.trial_view(chat), mid=mid, banner=views.banner("trial"))
+    elif data == "tr!":
+        status = premium.start_trial(chat, checker.site_down())
+        if status == "ok":
+            checker.event(f"🎁 Пробный период: {c.get('name') or chat}", "user")
+            tg.show(chat, *views.trial_started(chat), mid=mid, banner=views.banner("premium"))
+        else:
+            tg.show(chat, *views.trial_view(chat, views.trial_note(lang, status)), mid=mid, banner=views.banner("trial"))
+    elif data == "gr":
+        if premium.guarantee_state(chat) == "ready":
+            tg.show(chat, *views.guarantee_confirm(chat), mid=mid)
+        else:
+            tg.show(chat, *views.premium_view(chat), mid=mid, banner=views.banner("premium"))
+    elif data == "gr!":
+        ok = premium.use_guarantee(chat)
+        checker.event(f"🛡 Гарантия: {c.get('name') or chat}, {'возврат' if ok else 'не вышло'}", "money")
+        tg.show(chat, *views.premium_view(chat, views.guarantee_result(lang, ok)), mid=mid, banner=views.banner("premium"))
+    elif data == "ost":
+        tg.show(chat, *views.stats_view(chat), mid=mid)
+    elif data == "pn":
+        waiting[chat] = {"kind": "partner"}
+        tg.show(chat, *views.partner_view(chat), mid=mid, banner=views.banner("board"))
+    elif kind in ("jb", "jn", "js", "jx", "jm"):
+        return board_action(chat, mid, kind, rest, lang)
+    elif kind == "dg":
+        tg.show(chat, *views.tie_guide(chat), mid=mid, banner=views.banner("docs"))
+    elif data == "dw":
+        tg.show(chat, *views.windows_view(chat), mid=mid)
+    elif kind == "dw" and rest.isdigit():
+        if signals.toggle_window(chat, int(rest)) == "limit":
+            return views.window_limit_note(lang), True
+        tg.show(chat, *views.windows_view(chat), mid=mid)
     elif data == "pm":
         waiting[chat] = {"kind": "promo"}
         tg.show(chat, *views.promo_prompt(chat), mid=mid)
@@ -791,23 +900,27 @@ def enqueue(update: dict) -> None:
 
 COMMANDS = {
     "ru": [("menu", "🏠 Главное меню"), ("add", "➕ Добавить офис"), ("radar", "📡 Радар — где раньше"),
-           ("list", "📋 Мои офисы"), ("docs", "🛂 Документы: TIE, NIE, паспорт"), ("premium", "💎 Premium"), ("bonus", "🎁 Бонусы"),
-           ("ua", "🇺🇦 Для украинцев"),
+           ("list", "📋 Мои офисы"), ("docs", "🛂 Документы: TIE, NIE, паспорт"), ("tie", "📋 Как записаться на TIE"),
+           ("premium", "💎 Premium"), ("trial", "🎁 Попробовать Premium"), ("bonus", "🎁 Бонусы"), ("stats", "📊 Где чаще появляются места"),
+           ("post", "💼 Вакансии и реклама"), ("partner", "🤝 Партнёрам"), ("ua", "🇺🇦 Для украинцев"),
            ("lang", "🌐 Язык"), ("help", "❓ Как это работает"), ("terms", "📄 Условия"),
            ("paysupport", "💳 Поддержка по оплате"), ("privacy", "🔒 Мои данные")],
     "uk": [("menu", "🏠 Головне меню"), ("add", "➕ Додати офіс"), ("radar", "📡 Радар — де швидше"),
-           ("list", "📋 Мої офіси"), ("docs", "🛂 Документи: TIE, NIE, паспорт"), ("premium", "💎 Premium"), ("bonus", "🎁 Бонуси"),
-           ("ua", "🇺🇦 Для українців"),
+           ("list", "📋 Мої офіси"), ("docs", "🛂 Документи: TIE, NIE, паспорт"), ("tie", "📋 Як записатися на TIE"),
+           ("premium", "💎 Premium"), ("trial", "🎁 Спробувати Premium"), ("bonus", "🎁 Бонуси"), ("stats", "📊 Де частіше з’являються місця"),
+           ("post", "💼 Вакансії та реклама"), ("partner", "🤝 Партнерам"), ("ua", "🇺🇦 Для українців"),
            ("lang", "🌐 Мова"), ("help", "❓ Як це працює"), ("terms", "📄 Умови"),
            ("paysupport", "💳 Підтримка щодо оплати"), ("privacy", "🔒 Мої дані")],
     "es": [("menu", "🏠 Menú principal"), ("add", "➕ Añadir oficina"), ("radar", "📡 Radar: dónde hay cita antes"),
-           ("list", "📋 Mis oficinas"), ("docs", "🛂 Documentos: TIE, NIE, pasaporte"), ("premium", "💎 Premium"), ("bonus", "🎁 Bonos"),
-           ("ua", "🇺🇦 Para ucranianos"),
+           ("list", "📋 Mis oficinas"), ("docs", "🛂 Documentos: TIE, NIE, pasaporte"), ("tie", "📋 Cómo pedir cita TIE"),
+           ("premium", "💎 Premium"), ("trial", "🎁 Probar Premium"), ("bonus", "🎁 Bonos"), ("stats", "📊 Dónde aparecen más plazas"),
+           ("post", "💼 Empleo y publicidad"), ("partner", "🤝 Socios"), ("ua", "🇺🇦 Para ucranianos"),
            ("lang", "🌐 Idioma"), ("help", "❓ Cómo funciona"), ("terms", "📄 Condiciones"),
            ("paysupport", "💳 Ayuda con pagos"), ("privacy", "🔒 Mis datos")],
     "en": [("menu", "🏠 Main menu"), ("add", "➕ Add office"), ("radar", "📡 Radar: earliest appointment"),
-           ("list", "📋 My offices"), ("docs", "🛂 Documents: TIE, NIE, passport"), ("premium", "💎 Premium"), ("bonus", "🎁 Bonuses"),
-           ("ua", "🇺🇦 For Ukrainians"),
+           ("list", "📋 My offices"), ("docs", "🛂 Documents: TIE, NIE, passport"), ("tie", "📋 How to book a TIE"),
+           ("premium", "💎 Premium"), ("trial", "🎁 Try Premium"), ("bonus", "🎁 Bonuses"), ("stats", "📊 Where slots appear most"),
+           ("post", "💼 Jobs and ads"), ("partner", "🤝 Partners"), ("ua", "🇺🇦 For Ukrainians"),
            ("lang", "🌐 Language"), ("help", "❓ How it works"), ("terms", "📄 Terms"),
            ("paysupport", "💳 Payment support"), ("privacy", "🔒 My data")],
 }
@@ -860,6 +973,7 @@ def setup_profile() -> None:
     digest = hashlib.sha256(photo).hexdigest()
     if store.setting("avatar_sha") != digest and tg.set_profile_photo(photo):  # только при смене картинки
         store.set_setting("avatar_sha", digest)
+    log.info("канал %s: %s", channel.username(), channel.rights())
     for c in store.all_chats():  # кнопка мини-приложения у тех, у кого есть Premium
         if premium.is_premium(c["chat"]):
             premium.apply_menu_button(c["chat"])
@@ -868,6 +982,7 @@ def setup_profile() -> None:
 def start_background() -> None:
     threading.Thread(target=checker.loop, daemon=True, name="checks").start()
     threading.Thread(target=checker.reminders, daemon=True, name="reminders").start()
+    threading.Thread(target=checker.channel_loop, daemon=True, name="channel").start()
     threading.Thread(target=checker.housekeeping, daemon=True, name="housekeeping").start()
 
     def on_stop(*_) -> None:  # Render останавливает сервис сигналом SIGTERM — сохраняем всё незаписанное

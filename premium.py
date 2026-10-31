@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Dict, Optional, Tuple
+from typing import Callable, Dict, Optional, Tuple
 
 import config
 import store
@@ -31,7 +31,9 @@ CHECKOUT = {  # ответ Telegram на оплату: цена изменила
     "es": ("El precio ha cambiado. Vuelve a abrir el pago.", "Estamos en mantenimiento y los pagos están cerrados. Inténtalo más tarde."),
     "en": ("The price has changed. Open the payment again.", "Maintenance in progress, payments are temporarily closed. Try again later."),
 }
+GUARANTEE_FROM, GUARANTEE_TO = 7, 14          # возврат первой оплаты: с какого по какой день после неё
 _links: Dict[Tuple[str, int, str], str] = {}  # ссылка на оплату живёт долго — не создаём её на каждое нажатие
+post_check: Callable[[str, int, int], bool] = lambda payload, chat, amount: False  # подставляет board.py
 
 
 def is_premium(chat: int) -> bool:
@@ -71,6 +73,76 @@ def grant(chat: int, hours: int, reason: str) -> int:
     return until
 
 
+def trial_state(chat: int) -> str:
+    """Можно ли начать пробный период: open | off | active | paid | used."""
+    if not int(store.setting("trial_hours")):
+        return "off"
+    if is_premium(chat):
+        return "active"
+    if store.get_chat(chat).get("paid_at"):
+        return "paid"
+    return "used" if store.task_is_done("trial", chat) else "open"
+
+
+def can_trial(chat: int) -> bool:
+    return trial_state(chat) == "open"
+
+
+def start_trial(chat: int, site_down: bool = False) -> str:
+    """Пробный Premium: один раз на человека, запись остаётся и после удаления аккаунта.
+    Пока идут технические работы не начинаем, иначе дни сгорят без проверок. Статус: ok | down | как в trial_state."""
+    state = trial_state(chat)
+    if state != "open":
+        return state
+    if site_down:
+        return "down"
+    if not store.claim_task("trial", chat):
+        return "used"
+    store.set_chat(chat, trial_at=int(time.time()))
+    grant(chat, int(store.setting("trial_hours")), "trial")
+    store.bump("trials")
+    return "ok"
+
+
+def in_trial(chat: int) -> bool:
+    """Сейчас идёт пробный период: бонусы поверх него уже считаются обычным Premium."""
+    c = store.get_chat(chat)
+    at, until = c.get("trial_at") or 0, c.get("premium_until") or 0
+    return bool(at) and not c.get("paid_at") and time.time() < until <= at + int(store.setting("trial_hours")) * 3600 + 60
+
+
+def after_trial(chat: int) -> bool:
+    """Premium, который заканчивается сейчас, был пробным: ему нужно другое письмо."""
+    c = store.get_chat(chat)
+    return bool(c.get("trial_at")) and not c.get("paid_at") and time.time() - c["trial_at"] < 14 * DAY
+
+
+def guarantee_state(chat: int) -> Optional[str]:
+    """Гарантия на первую оплату: wait — неделя ещё идёт, ready — можно вернуть звёзды, None — не действует."""
+    c = store.get_chat(chat)
+    paid = c.get("paid_at") or 0
+    if not paid or store.task_is_done("guarantee", chat):
+        return None
+    age = time.time() - paid
+    if age > GUARANTEE_TO * DAY or (c.get("alerts") or 0) > (c.get("paid_alerts") or 0):
+        return None
+    if age < GUARANTEE_FROM * DAY:
+        return "wait"
+    return "ready" if store.subs_of(chat) else None
+
+
+def use_guarantee(chat: int) -> bool:
+    """Возвращает звёзды за первую оплату. Premium снимет on_refund, когда Telegram подтвердит возврат."""
+    if guarantee_state(chat) != "ready":
+        return False
+    if store.get_chat(chat).get("sub_active"):
+        cancel(chat)
+    ok, _ = refund_last(chat)
+    if ok:
+        store.claim_task("guarantee", chat)
+    return ok
+
+
 def invoice_link(plan: str, lang: str) -> Optional[str]:
     """Ссылка на оплату. В ней нет данных пользователя: Premium получает тот, кто заплатил."""
     info, price = PLANS[plan], plan_price(plan)
@@ -98,11 +170,15 @@ def plan_of(payload: str) -> Optional[str]:
 
 def on_pre_checkout(query: dict, site_down: bool) -> None:
     """Telegram даёт 10 секунд на ответ: здесь только проверки в памяти."""
-    plan = plan_of(query.get("invoice_payload"))
-    lang = store.get_chat(query["from"]["id"]).get("lang") or "ru"
+    payload, chat = query.get("invoice_payload") or "", query["from"]["id"]
+    plan = plan_of(payload)
+    lang = store.get_chat(chat).get("lang") or "ru"
     changed, closed = CHECKOUT.get(lang, CHECKOUT["ru"])
     error = None
-    if not plan or query.get("currency") != "XTR" or query.get("total_amount") != plan_price(plan):
+    if payload.startswith("post:"):
+        if query.get("currency") != "XTR" or not post_check(payload, chat, query.get("total_amount")):
+            error = changed
+    elif not plan or query.get("currency") != "XTR" or query.get("total_amount") != plan_price(plan):
         error = changed
     elif site_down:
         error = closed
@@ -124,6 +200,9 @@ def on_payment(msg: dict) -> Optional[Tuple[str, int]]:
     if not store.add_payment(charge, chat, pay["total_amount"], plan, recurring):
         return None
     store.add_premium(chat, PLANS[plan]["days"] * DAY, f"pay:{plan}")
+    c = store.get_chat(chat)
+    if not c.get("paid_at"):
+        store.set_chat(chat, paid_at=int(time.time()), paid_alerts=c.get("alerts") or 0)
     if recurring:
         known = store.get_chat(chat).get("sub_charge")
         store.set_chat(chat, sub_charge=charge if pay.get("is_first_recurring") or not known else known, sub_active=1)
@@ -171,7 +250,7 @@ def cancel(chat: int) -> bool:
 
 
 def refund_last(chat: int) -> Tuple[bool, str]:
-    rows = store.q("SELECT * FROM payments WHERE chat = ? AND refunded = 0 ORDER BY created_at DESC LIMIT 1", (chat,))
+    rows = store.q("SELECT * FROM payments WHERE chat = ? AND refunded = 0 AND plan <> 'post' ORDER BY created_at DESC LIMIT 1", (chat,))
     if not rows:
         return False, "Нет оплат для возврата"
     data = tg.call("refundStarPayment", user_id=chat, telegram_payment_charge_id=rows[0]["charge_id"]) or {}

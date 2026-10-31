@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, parse_qsl, urlsplit
 
 import actions
 import ads
+import channel
 import checker
 import config
 import dgt
@@ -24,6 +25,7 @@ import premium
 import radar
 import rewards
 import signals
+import stats
 import store
 import tg
 import views
@@ -43,7 +45,8 @@ FILES = {"/app": "webapp/index.html", "/app/app.js": "webapp/app.js", "/app/i18n
          "/app/icon.png": "assets/avatar.png", "/app/mark.svg": "assets/mark.svg", "/static/banner.jpg": "assets/banner.jpg",
          "/static/banner_premium.jpg": "assets/banner_premium.jpg", "/static/banner_bonus.jpg": "assets/banner_bonus.jpg",
          "/static/banner_radar.jpg": "assets/banner_radar.jpg", "/static/banner_admin.jpg": "assets/banner_admin.jpg",
-         "/static/banner_docs.jpg": "assets/banner_docs.jpg"}
+         "/static/banner_docs.jpg": "assets/banner_docs.jpg", "/static/banner_board.jpg": "assets/banner_board.jpg",
+         "/static/banner_trial.jpg": "assets/banner_trial.jpg"}
 STATES = {"🟢": "free", "🟡": "later", "🔴": "full", "⏸": "paused", "✅": "booked", "⏳": "pending",
           "⚠️": "error", "🔐": "locked", "⚪️": "none", "❔": "error"}
 LOADS = {"bajaOcupacion": "many", "mediaOcupacion": "mid", "altaOcupacion": "few"}
@@ -136,6 +139,8 @@ def me_payload(chat: int) -> dict:
     paid = premium.is_premium(chat)
     data = {"lang": lang, "langSet": bool(c.get("lang")), "name": c.get("name") or "", "premium": paid, "premiumUntil": c.get("premium_until") or 0,
             "autoRenew": bool(c.get("sub_active")), "limit": premium.limit_subs(chat), "bot": config.BOT_USERNAME, "bookUrl": dgt.START_URL,
+            "trial": premium.can_trial(chat), "trialDays": views.trial_days(lang), "inTrial": premium.in_trial(chat),
+            "guarantee": premium.guarantee_state(chat), "channel": channel.link(),
             "outage": checker.site_down(), "quiet": bool(c.get("quiet")), "adsOk": bool(c.get("ads_ok")), "plans": [
                 {"id": p, "days": premium.PLANS[p]["days"], "stars": premium.plan_price(p),
                  "recurring": premium.PLANS[p]["recurring"]} for p in ("p30", "p7", "p90")],
@@ -153,7 +158,8 @@ def docs_payload(chat: int, lang: str) -> dict:
     mine = [{"province": p, "doc": d, "name": signals.PROVINCES[p], "title": views.doc_name(lang, d), "hour": signals.best_hour(p, d)}
             for p, d in signals.subs_of(chat)]
     return {"mine": mine, "limit": signals.limit(chat), "site": signals.ICP_URL, "provinces": [{"id": k, "name": v} for k, v in names],
-            "docs": [{"id": d, "title": views.doc_name(lang, d)} for d in signals.DOCS]}
+            "docs": [{"id": d, "title": views.doc_name(lang, d)} for d in signals.DOCS],
+            "windows": {"options": signals.WINDOWS, "mine": signals.windows_of(chat), "limit": signals.window_limit(chat)}}
 
 
 def radar_payload(chat: int, lang: str) -> dict:
@@ -176,7 +182,18 @@ def radar_payload(chat: int, lang: str) -> dict:
     return {"state": "done", "km": job["km"], "cat": job["cat"], "items": items}
 
 
-PAGES = {"help": views.help_view, "terms": views.terms_view, "privacy": views.privacy_view, "ukraine": views.ukraine_view}
+def stats_payload(lang: str) -> dict:
+    return {"items": [{"city": views.city(g["centro"]), "type": views.area_label(g["area"]), "opens": g["opens"], "best": g["best"],
+                       "held": views.fmt_dur(g["avg"], lang) if g["avg"] else ""} for g in stats.offices()[:20]]}
+
+
+def board_payload(chat: int) -> dict:
+    posts = [{"kind": p["kind"], "text": p["text"], "link": channel.link(p["message"]), "at": p["decided_at"]} for p in store.posts("published", 20)]
+    return {"posts": posts, "job": store.setting("post_job"), "ad": store.setting("post_ad"), "freeJob": not store.free_job_used(chat)}
+
+
+PAGES = {"help": views.help_view, "terms": views.terms_view, "privacy": views.privacy_view, "ukraine": views.ukraine_view,
+         "tie": views.tie_guide}
 
 
 def account_api(method: str, parts: list, body: dict, chat: int, c: dict) -> Optional[Tuple[int, dict]]:
@@ -205,6 +222,12 @@ def account_api(method: str, parts: list, body: dict, chat: int, c: dict) -> Opt
             return 400, {"error": "unavailable"}
         link = premium.invoice_link(plan, lang)
         return (200, {"link": link}) if link else (502, {"error": "telegram"})
+    if parts == ["trial"] and method == "POST":
+        status = premium.start_trial(chat, checker.site_down())
+        if status == "ok":
+            checker.event(f"🎁 Пробный период: {c.get('name') or chat}", "user")
+            return 200, {"status": status}
+        return 409, {"status": status, "text": views.trial_note(lang, status)}
     if parts == ["promo"] and method == "POST":
         status, hours = rewards.apply_promo(chat, str(body.get("code") or "")[:40])
         return 200, {"status": status, "text": views.promo_result(lang, status, hours)}
@@ -268,7 +291,8 @@ def office_api(method: str, parts: list, query: dict, body: dict, chat: int, lan
         closed = [e["closed_at"] - e["opened_at"] for e in evs if e["closed_at"]]
         return 200, {"events": [{"at": views.fmt_ts(e["opened_at"], lang), "lasted": views.fmt_dur(e["closed_at"] - e["opened_at"], lang) if e["closed_at"] else "",
                                  "days": views.days_word(lang, e["days"] or 0)} for e in evs],
-                     "bestHour": hours[0][0] if hours else None, "average": views.fmt_dur(sum(closed) // len(closed), lang) if closed else ""}
+                     "bestHour": hours[0][0] if hours else None, "average": views.fmt_dur(sum(closed) // len(closed), lang) if closed else "",
+                     "hours": (stats.office(sub["centro"], sub["area"]) or {}).get("hours")}
     return None
 
 
@@ -284,6 +308,20 @@ def extras_api(method: str, parts: list, body: dict, chat: int, lang: str) -> Op
         return (409, {"text": hint}) if hint else (200, {"status": "ok"})
     if parts == ["docs"] and method == "GET":
         return 200, docs_payload(chat, lang)
+    if parts == ["docs", "windows"] and method == "POST":
+        hour = body.get("hour")
+        status = signals.toggle_window(chat, hour) if isinstance(hour, int) else "bad"
+        if status == "limit":
+            return 409, {"text": views.window_limit_note(lang)}
+        return (200, {"mine": signals.windows_of(chat)}) if status == "ok" else (400, {"error": "hour"})
+    if parts == ["stats"] and method == "GET":
+        return 200, stats_payload(lang)
+    if parts == ["board"] and method == "GET":
+        return 200, board_payload(chat)
+    if parts == ["guarantee"] and method == "POST":
+        ok = premium.use_guarantee(chat)
+        checker.event(f"🛡 Гарантия: {store.get_chat(chat).get('name') or chat}, {'возврат' if ok else 'не вышло'}", "money")
+        return (200 if ok else 409), {"text": views.guarantee_result(lang, ok)}
     if len(parts) == 2 and parts[0] == "docs" and method == "POST":
         province, doc = str(body.get("province") or ""), str(body.get("doc") or "")
         if not signals.valid(province, doc):

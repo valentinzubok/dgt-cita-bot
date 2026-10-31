@@ -51,6 +51,10 @@ const ICONS = {
   bolt: "M13 3 5 14h6l-1 7 8-11h-6l1-7Z",
   eye: "M2.5 12S6 5.5 12 5.5 21.500 12 21.500 12 18 18.500 12 18.500 2.500 12 2.500 12ZM12 9.500a2.500 2.500 0 1 0 0 5 2.500 2.500 0 0 0 0-5Z",
   chat: "M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-5 4v-4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z",
+  bars: "M5 20v-7M12 20V5M19 20v-11",
+  case: "M4 8h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1ZM9 8V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2M3 13h18M12 12v2",
+  phone: "M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1ZM11 18h2",
+  handshake: "M3 8l4-3 5 2 5-2 4 3v7l-4 1-5 4-5-4-4-1V8ZM12 7 8.500 11c1 1 2.200 1 3.500 0l1.500-1 4 4",
 };
 const AREA_ICONS = { lic: "id", veh: "car", mix: "car", cnj: "swap", exm: "cap", san: "euro", mat: "doc", rpc: "refresh", doc: "doc" };
 const STATE_ICONS = { paused: "pause", booked: "check", locked: "lock", error: "alert", none: "x", pending: "clock" };
@@ -392,10 +396,21 @@ function spotlight(s) {
       h("button", { class: "btn white", onclick: () => openLink(me.bookUrl) }, L.bookNow, ico("external", 16)),
       h("button", { class: "btn glass", "aria-label": L.details, onclick: () => push(() => officeScreen(s.id)) }, ico("right", 18))));
 }
+function trialLeft() {
+  const days = Math.ceil((me.premiumUntil * 1000 - Date.now()) / 86400000);
+  return days <= 1 ? L.trialLastDay : fill(L.trialLeftDays, { n: days });
+}
+function trialStrip() {
+  if (!me.inTrial) return null;
+  return h("button", { class: "trial-strip", onclick: () => setTab("profile") },
+    h("span", { class: "tile sm vio" }, ico("gift", 20)),
+    h("span", { class: "main" }, h("b", {}, fill(L.trialBanner, { left: trialLeft() })), h("small", {}, L.trialHint)),
+    h("span", { class: "mini solid" }, L.trialBuy));
+}
 function homeScreen() {
   const best = me.subs.filter((s) => s.state === "free").sort((a, b) => a.nearest.localeCompare(b.nearest))[0];
   const addBtn = h("button", { class: "add", disabled: me.used >= me.limit, onclick: addOffice }, ico("plus", 16), L.add);
-  return [hero(), me.outage ? notice(L.outage) : null, best ? spotlight(best) : null,
+  return [hero(), me.outage ? notice(L.outage) : null, trialStrip(), best ? spotlight(best) : null,
     sectionHead(L.myOffices, addBtn),
     me.subs.length ? h("div", { class: "list" }, me.subs.map(officeCard))
       : emptyBox(h("img", { src: "/app/mark.svg", alt: "" }), L.emptyTitle, L.emptyText, h("button", { class: "btn", onclick: addOffice }, ico("plus", 18), L.addOffice))];
@@ -477,9 +492,10 @@ function officeHeader(s) {
 }
 function historyCard(id) {
   const box = h("section", { class: "card" }, h("h3", {}, L.history), h("div", { class: "line-skeleton" }), h("div", { class: "line-skeleton short" }));
-  api(`subs/${id}/history`).then(({ events, bestHour, average }) => {
+  api(`subs/${id}/history`).then(({ events, bestHour, average, hours }) => {
     box.replaceChildren(h("h3", {}, L.history));
     if (!events.length) return box.append(h("p", { class: "muted" }, L.noHistory));
+    if (hours) box.append(h("span", { class: "label" }, L.hoursChart), hoursChart(hours));
     box.append(h("div", { class: "timeline" }, events.map((e) => h("div", { class: "tl" + (e.lasted ? "" : " open") }, h("i"),
       h("b", {}, cap(e.at)), h("small", {}, `${e.lasted ? fill(L.lasted, { t: e.lasted }) : L.historyOpen} · ${e.days}`)))));
     const facts = [bestHour !== null ? fill(L.bestHour, { h: bestHour }) : null, average ? fill(L.avgLast, { t: average }) : null].filter(Boolean);
@@ -590,6 +606,7 @@ function radarScreen() {
     radarHero(false),
     me.outage ? notice(L.outage) : null,
     row("pin", R.office ? R.office.city : L.choose, L.radarFrom, pickRadarOffice),
+    row("bars", L.statsTitle, L.statsSub, () => push(statsScreen)),
     h("section", { class: "card" }, h("h3", {}, L.radarType), h("div", { class: "chips" }, cats.map((c) =>
       h("button", { class: "chip" + (R.cat === c.id ? " on" : ""), onclick: () => { R.cat = c.id; haptic(); render(); } }, c.label)))),
     h("section", { class: "card" }, h("h3", {}, L.radarRange), h("div", { class: "segment" }, [100, 150, 250].map((km) =>
@@ -717,9 +734,23 @@ function docsScreen() {
         h("button", { class: "round", "aria-label": L.actRemove, onclick: () => removeSignal(m) }, ico("trash", 17)))))
       : emptyBox(ico("bell", 28), null, L.noSignals),
     h("button", { class: "btn quiet", disabled: docs.mine.length >= docs.limit, onclick: addSignal }, ico("plus", 18), L.addSignal),
-    row("external", L.docsSite, null, () => openLink(docs.site)),
+    h("section", { class: "card" }, h("h3", {}, `${L.windowsTitle} · ${docs.windows.mine.length}/${docs.windows.limit}`),
+      h("div", { class: "chips" }, docs.windows.options.map((hour) => h("button", {
+        class: "chip" + (docs.windows.mine.includes(hour) ? " on" : ""), onclick: () => toggleWindow(hour),
+      }, `${String(hour).padStart(2, "0")}:00`))), h("p", { class: "muted small" }, L.windowsHint)),
+    h("div", { class: "group" },
+      row("doc", L.guideTitle, null, () => push(textPage("tie", L.guideTitle))),
+      row("external", L.docsSite, null, () => openLink(docs.site))),
     h("p", { class: "muted small center" }, L.docsWarn),
   ];
+}
+async function toggleWindow(hour) {
+  try {
+    const { mine } = await api("docs/windows", { hour });
+    docs.windows.mine = mine;
+    haptic();
+    render();
+  } catch (e) { toast(e.data && e.data.text ? e.data.text : L.failed, "bad"); }
 }
 async function removeSignal(m) {
   try { await api("docs/unsub", { province: m.province, doc: m.doc }); haptic("medium"); await loadDocs(); }
@@ -829,6 +860,12 @@ function cancelRenew() {
     catch (e) { toast(L.failed, "bad"); }
   });
 }
+function useGuarantee() {
+  confirmSheet(L.guaranteeTitle, L.guaranteeText, L.guaranteeYes, true, async () => {
+    try { const { text } = await api("guarantee", {}); toast(text, "ok"); await load(); }
+    catch (e) { toast(e.data && e.data.text ? e.data.text : L.failed, "bad"); }
+  });
+}
 function profileScreen() {
   const left = me.premiumUntil * 1000 > Date.now() ? Math.max(1, Math.ceil((me.premiumUntil * 1000 - Date.now()) / 86400000)) : 0;
   return [
@@ -840,7 +877,10 @@ function profileScreen() {
       h("div", { class: "stats two" }, stat(left ? fill(L.planLeft, { n: left }) : L.planNoEnd, left ? planLine() : "Premium"), stat(`${me.used}/${me.limit}`, L.statOffices))),
     me.autoRenew ? h("div", { class: "row static" }, h("span", { class: "tile sm ok" }, ico("refresh", 20)),
       h("span", { class: "main" }, h("b", {}, L.autoRenew), h("small", {}, L.autoOn)), h("button", { class: "mini", onclick: cancelRenew }, L.turnOff)) : null,
+    me.inTrial ? h("div", { class: "trial-note" }, ico("gift", 18), h("span", {}, fill(L.trialBanner, { left: trialLeft() }))) : null,
     left && !me.autoRenew ? [sectionHead(L.extend), h("div", { class: "list" }, me.outage ? notice(L.outage) : planCards())] : null,
+    me.guarantee === "ready" ? row("shield", L.guaranteeBtn, null, useGuarantee) : null,
+    me.guarantee === "wait" ? h("p", { class: "muted small center" }, L.guaranteeWait) : null,
     sectionHead(L.language),
     langGrid(),
     sectionHead(L.settings),
@@ -849,12 +889,94 @@ function profileScreen() {
       toggle("megaphone", L.partner, L.partnerHint, me.adsOk, (on) => saveSetting({ ads: on }))),
     sectionHead(L.info),
     h("div", { class: "group" },
+      row("case", L.boardTitle, null, () => push(boardScreen)),
       row("help", L.howItWorks, null, () => push(textPage("help", L.howItWorks))),
       row("shield", L.forUkr, null, () => push(textPage("ukraine", L.forUkr))),
       row("doc", L.terms, null, () => push(textPage("terms", L.terms))),
       row("lock", L.privacy, null, () => push(textPage("privacy", L.privacy))),
-      row("chat", L.openBot, null, openBot)),
+      row("chat", L.openBot, null, openBot),
+      tg && tg.addToHomeScreen && tg.isVersionAtLeast("8.0") ? row("phone", L.addHome, null, () => tg.addToHomeScreen()) : null),
     h("p", { class: "muted small center" }, L.disclaimer),
+  ];
+}
+
+// ---------- пробный период ----------
+
+function trialSheet() {
+  sheet(fill(L.trialTitle, { d: me.trialDays }), (body, close) => {
+    const point = (icon, text) => h("div", { class: "point" }, h("span", { class: "tile sm ok" }, ico(icon, 19)), h("span", {}, text));
+    body.append(h("div", { class: "points" },
+      point("home", L.trialP1),
+      point("bolt", fill(L.trialP2, { fast: me.top.interval, slow: me.free.interval })),
+      point("pin", fill(L.trialP3, { top: me.top.subs, free: me.free.subs })),
+      point("radar", L.trialP4)),
+      h("p", { class: "muted small" }, L.trialFine),
+      h("button", { class: "btn success", onclick: () => startTrial(close) }, ico("gift", 18), L.trialStart));
+  });
+}
+async function startTrial(close) {
+  try {
+    await api("trial", {});
+    close();
+    success();
+    await load("fade");
+    welcomeSheet();
+  } catch (e) {
+    close();
+    toast(e.data && e.data.text ? e.data.text : L.failed, "bad");
+    await load();
+  }
+}
+function welcomeSheet() {
+  sheet(L.welcomeTitle, (body, close) => {
+    const step = (n, text) => h("div", { class: "point" }, h("span", { class: "tile sm vio" }, h("b", {}, String(n))), h("span", {}, text));
+    body.append(h("div", { class: "points" }, step(1, fill(L.welcome1, { n: me.top.interval })), step(2, L.welcome2), step(3, L.welcome3)),
+      h("button", { class: "btn", onclick: () => { close(); if (!me.subs.length) addOffice(); } }, L.welcomeGo));
+  });
+}
+
+// ---------- статистика ----------
+
+function hoursChart(hours) {
+  const top = Math.max(...hours, 1);
+  return h("div", { class: "chart" }, h("div", { class: "bars" }, hours.map((n, i) =>
+    h("i", { class: n ? "on" : "", style: { height: `${Math.max(6, (n / top) * 100)}%` }, title: `${i}:00 · ${n}` }))),
+    h("div", { class: "ticks" }, [0, 6, 12, 18, 23].map((t) => h("span", {}, `${t}`))));
+}
+function statsScreen() {
+  const box = h("div", { class: "list" }, h("div", { class: "skeleton" }), h("div", { class: "skeleton short" }));
+  api("stats").then(({ items }) => {
+    if (!items.length) return box.replaceChildren(emptyBox(ico("bars", 28), null, L.statsEmpty));
+    const top = items[0].opens;
+    box.replaceChildren(...items.map((g, i) => h("div", { class: "metric" },
+      h("div", { class: "metric-top" }, h("span", { class: "place" + (i < 3 ? ` p${i}` : "") }, String(i + 1)),
+        h("span", { class: "main" }, h("b", {}, g.city), h("small", {}, g.type)), h("strong", {}, String(g.opens))),
+      h("div", { class: "track" }, h("i", { style: { width: `${(g.opens / top) * 100}%` } })),
+      h("small", {}, [`${L.statBest} ~${g.best}:00`, g.held ? `${L.statHeld} ${g.held}` : null].filter(Boolean).join(" · ")))));
+  }).catch(() => box.replaceChildren(h("p", { class: "muted" }, L.failed)));
+  return [h("h1", { class: "page-title" }, L.statsTitle), h("p", { class: "muted center" }, L.statsSub), box, h("p", { class: "muted small center" }, L.statsNote)];
+}
+
+// ---------- вакансии и партнёры ----------
+
+function boardScreen() {
+  const box = h("div", { class: "list" }, h("div", { class: "skeleton" }));
+  const prices = h("p", { class: "muted small center" });
+  api("board").then((d) => {
+    prices.textContent = (d.freeJob ? `${L.boardFree}. ` : "") + fill(L.boardPrices, { job: d.job, ad: d.ad });
+    box.replaceChildren(...(d.posts.length ? d.posts.map((p) => h("button", { class: "post", onclick: () => openAny(p.link) },
+      h("span", { class: "pill " + (p.kind === "job" ? "ok" : "vio") }, p.kind === "job" ? L.kindJob : L.kindAd),
+      h("p", {}, p.text.length > 180 ? `${p.text.slice(0, 180)}…` : p.text))) : [emptyBox(ico("case", 28), null, L.boardEmpty)]));
+  }).catch(() => box.replaceChildren(h("p", { class: "muted" }, L.failed)));
+  const start = (section) => () => { openTg(`https://t.me/${me.bot}?start=${section}`); if (tg) tg.close(); };
+  return [
+    h("section", { class: "hero dusk" }, h("i", { class: "glow" }), h("div", { class: "hero-copy wide" }, h("h1", {}, L.boardTitle), h("p", {}, L.boardText)),
+      h("button", { class: "btn white", onclick: start("post") }, ico("case", 18), L.boardPost)),
+    prices,
+    box,
+    h("div", { class: "group" },
+      row("handshake", L.boardPartner, null, start("partner")),
+      row("megaphone", L.boardChannel, null, () => openAny(me.channel))),
   ];
 }
 
@@ -864,7 +986,9 @@ function lockedScreen() {
   const feature = (icon, name, free, top) => h("div", { class: "feature" }, h("span", { class: "tile sm" }, ico(icon, 18)), h("b", {}, name), h("span", {}, free), h("strong", {}, top));
   return [
     h("section", { class: "hero gem lockhero" }, h("i", { class: "glow" }), h("div", { class: "lock-lang" }, langChip()),
-      h("div", { class: "gem-mark" }, ico("gem", 44)), h("h1", {}, L.lockedTitle), h("p", {}, L.lockedText)),
+      h("div", { class: "gem-mark" }, ico("gem", 44)), h("h1", {}, L.lockedTitle), h("p", {}, L.lockedText),
+      me.trial ? h("button", { class: "btn white trial-cta", onclick: trialSheet }, ico("gift", 19), fill(L.trialBtn, { d: me.trialDays })) : null,
+      me.trial ? h("small", { class: "trial-once" }, L.trialOnce) : null),
     h("section", { class: "card" },
       h("div", { class: "feature head" }, h("i"), h("i"), h("span", {}, L.free), h("strong", {}, "Premium")),
       feature("pin", L.rowOffices, String(me.free.subs), String(me.top.subs)),

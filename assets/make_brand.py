@@ -1,5 +1,7 @@
-"""Рисует логотип и баннеры разделов: SVG/HTML → PNG через Chrome → JPG. Запуск: python3 assets/make_brand.py"""
+"""Рисует логотип и баннеры разделов: SVG/HTML → PNG через Chrome → JPG.
+Запуск: python3 assets/make_brand.py, только нужные баннеры: python3 assets/make_brand.py banner_board banner_trial"""
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -113,6 +115,19 @@ ADMIN = page("linear-gradient(120deg,#0C1020 0%,#1B2442 55%,#3A2A7A 100%)", PANE
     "{DECOR}", '<div style="position:absolute;inset:0;background:radial-gradient(circle at 26% 50%,rgba(120,120,255,.25),rgba(0,0,0,0) 52%)"></div>' + RINGS)
 
 
+BRIEFCASE = '''<svg viewBox="0 0 440 380" width="440" height="380"><defs>
+<linearGradient id="b" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#FFE7C2"/></linearGradient>
+<linearGradient id="s" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#FF6B2C"/><stop offset="1" stop-color="#FFB627"/></linearGradient>
+<filter id="f" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#2A1A5E" flood-opacity=".5"/></filter></defs>
+<path d="M150 96 V70 a26 26 0 0 1 26 -26 H264 a26 26 0 0 1 26 26 V96" fill="none" stroke="#fff" stroke-width="22"/>
+<g filter="url(#f)"><rect x="34" y="92" width="372" height="244" rx="38" fill="url(#b)"/></g>
+<path d="M34 186 a38 38 0 0 0 38 34 H368 a38 38 0 0 0 38 -34 V130 a38 38 0 0 0 -38 -38 H72 a38 38 0 0 0 -38 38 Z" fill="url(#s)"/>
+<rect x="186" y="196" width="68" height="50" rx="14" fill="#fff"/><circle cx="220" cy="221" r="9" fill="#FF6B2C"/></svg>'''
+BOARD = page("linear-gradient(120deg,#1B1147 0%,#4A1FB8 55%,#FF6B2C 100%)", BRIEFCASE, "Empleo", "💼 Jobs · 🤝 Partners", "#fff").replace("{DECOR}", GLOW + RINGS)
+TRIAL = page("linear-gradient(120deg,#160B33 0%,#3B1A8F 50%,#0FB78A 100%)", GEM, "Premium", "🎁 72 h · 0 ⭐", "#fff").replace(
+    "{DECOR}", '<div style="position:absolute;inset:0;background:radial-gradient(circle at 26% 50%,rgba(120,240,200,.3),rgba(0,0,0,0) 50%)"></div>' + RINGS)
+
+
 def shot(html, out, w, h, quality=86):
     with tempfile.TemporaryDirectory() as tmp:
         src, png = Path(tmp) / "p.html", Path(tmp) / "p.png"
@@ -126,13 +141,18 @@ def shot(html, out, w, h, quality=86):
             im.save(out, quality=quality, optimize=True, progressive=True)
 
 
-(HERE / "logo.svg").write_text(LOGO, encoding="utf-8")
-(HERE / "mark.svg").write_text(MARK_ONLY, encoding="utf-8")
-avatar = f'<!doctype html><style>html,body{{margin:0}}svg{{display:block;width:640px;height:640px}}</style>{LOGO}'
-shot(avatar, HERE / "avatar.png", 640, 640)
-shot(avatar, HERE / "avatar.jpg", 640, 640, 92)
-for name, html in (("banner", HOME), ("banner_premium", PREMIUM), ("banner_bonus", BONUS), ("banner_radar", RADAR_P), ("banner_admin", ADMIN), ("banner_docs", DOCS)):
-    shot(html, HERE / f"{name}.jpg", 1280, 640)
-shot(HOME.replace("height:640px", "height:720px"), HERE / "cover.png", 1280, 720)  # картинка в описании бота: 640x360 в BotFather
-Image.open(HERE / "cover.png").resize((640, 360), Image.LANCZOS).save(HERE / "cover-640x360.png", optimize=True)
+ONLY = sys.argv[1:]
+BANNERS = {"banner": HOME, "banner_premium": PREMIUM, "banner_bonus": BONUS, "banner_radar": RADAR_P, "banner_admin": ADMIN, "banner_docs": DOCS,
+           "banner_board": BOARD, "banner_trial": TRIAL}
+for name, html in BANNERS.items():
+    if not ONLY or name in ONLY:
+        shot(html, HERE / f"{name}.jpg", 1280, 640)
+if not ONLY:
+    (HERE / "logo.svg").write_text(LOGO, encoding="utf-8")
+    (HERE / "mark.svg").write_text(MARK_ONLY, encoding="utf-8")
+    avatar = f'<!doctype html><style>html,body{{margin:0}}svg{{display:block;width:640px;height:640px}}</style>{LOGO}'
+    shot(avatar, HERE / "avatar.png", 640, 640)
+    shot(avatar, HERE / "avatar.jpg", 640, 640, 92)
+    shot(HOME.replace("height:640px", "height:720px"), HERE / "cover.png", 1280, 720)  # картинка в описании бота: 640x360 в BotFather
+    Image.open(HERE / "cover.png").resize((640, 360), Image.LANCZOS).save(HERE / "cover-640x360.png", optimize=True)
 print("готово")

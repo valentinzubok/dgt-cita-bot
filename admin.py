@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 import ads
+import board
+import channel
 import checker
 import config
 import dgt
@@ -91,6 +93,7 @@ def panel() -> Tuple[str, dict]:
     waiting = sum(1 for c in chats if c.get("role") == "pending")
     paid_now = sum(1 for c in chats if (c.get("premium_until") or 0) > now)
     maint = store.setting("maintenance")
+    review = len(store.posts("review"))
     text = (
         f"🛠 <b>Админ-панель</b> · {state_line()}"
         + ("\n🚧 Пользователи видят «Технические работы»" if maint else "") + "\n\n"
@@ -114,6 +117,8 @@ def panel() -> Tuple[str, dict]:
         [btn("👥 Пользователи", "ad:u:0"), btn("🏢 Офисы", "ad:o")],
         [btn("💰 Доход", "ad:mn", "success"), btn("🎟 Промо", "ad:pm")],
         [btn("📝 Задания", "ad:ts"), btn("📣 Реклама", "ad:ca")],
+        [btn("🎁 Пробный период", "ad:ty"), btn("📌 Объявления" + (f" · {review}" if review else ""), "ad:jq", "primary" if review else None)],
+        [btn("📢 Канал", "ad:cl")],
         [btn("📢 Рассылка", "ad:b", "primary"), btn("📜 Журнал", "ad:l:all")],
         [btn("⚙️ Настройки", "ad:s"), btn("📤 Экспорт", "ad:x")],
         [btn("🚧 Выключить техработы" if maint else "🚧 Включить техработы", "ad:pw", "danger" if maint else None)],
@@ -365,6 +370,85 @@ def money(note: str = "") -> Tuple[str, dict]:
             "🧾 <b>Последние оплаты</b>\n" + ("<blockquote>" + "\n".join(lines) + "</blockquote>" if lines else "пока нет")
             + (f"\n\n{note}" if note else ""))
     return text, ikb([[btn("✏️ Изменить цены", "ad:pp")], [btn("🔄 Обновить", "ad:mn"), BACK]])
+
+
+# ---------- пробный период ----------
+
+def trial_admin(note: str = "") -> Tuple[str, dict]:
+    hours = int(store.setting("trial_hours"))
+    chats = store.all_chats()
+    used = [c for c in chats if c.get("trial_at")]
+    active = sum(1 for c in used if premium.in_trial(c["chat"]))
+    bought = sum(1 for c in used if c.get("paid_at"))
+    rate = f"{round(bought / len(used) * 100)}%" if used else "—"
+    text = ("🎁 <b>Пробный период</b>\n\n<blockquote>"
+            f"Срок: <b>{days_text(hours) if hours else 'выключен'}</b>\n"
+            f"Начали: <b>{len(used)}</b> · идёт сейчас: <b>{active}</b>\n"
+            f"Купили после него: <b>{bought}</b> · конверсия: <b>{rate}</b></blockquote>\n"
+            "<i>Один раз на человека, запись остаётся и после удаления аккаунта. Не даётся тем, кто уже покупал Premium или имеет его сейчас. "
+            "У владельца Premium включён всегда, поэтому кнопку видно только со второго аккаунта.</i>"
+            + (f"\n\n{note}" if note else ""))
+    return text, ikb([
+        [btn("Срок", "noop")],
+        [btn(("✅ " if h == hours else "") + (days_text(h) if h else "Выкл"), f"ad:ty:{h}") for h in (0, 24, 72, 168)],
+        [btn("👀 Что видит пользователь", "ad:tp")],
+        [BACK],
+    ])
+
+
+# ---------- объявления ----------
+
+def board_admin(note: str = "") -> Tuple[str, dict]:
+    counts = store.post_counts()
+    queue = store.posts("review", 10)
+    job, ad = board.price("job"), board.price("ad")
+    text = ("📌 <b>Объявления в канале</b>\n\n<blockquote>"
+            f"⏳ На проверке: <b>{counts.get('review', 0)}</b>\n"
+            f"✅ Опубликовано: <b>{counts.get('published', 0)}</b> · 🚫 отклонено: <b>{counts.get('rejected', 0)}</b>\n"
+            f"💼 Вакансия: <b>{job}</b> ⭐ · 📣 реклама: <b>{ad}</b> ⭐</blockquote>"
+            + (f"\n\n{note}" if note else ""))
+    rows = [[btn(f"{'💼' if p['kind'] == 'job' else '📣'} {p['text'][:36]}", f"ad:jc:{p['id']}")] for p in queue]
+    rows.append([btn("💼 Цена вакансии", "noop")])
+    rows.append([btn(("✅ " if n == job else "") + str(n), f"ad:jp:post_job:{n}") for n in (0, 49, 99, 199)])
+    rows.append([btn("📣 Цена рекламы", "noop")])
+    rows.append([btn(("✅ " if n == ad else "") + str(n), f"ad:jp:post_ad:{n}") for n in (99, 249, 499, 999)])
+    rows.append([btn("🔄 Обновить", "ad:jq"), BACK])
+    return text, ikb(rows)
+
+
+def board_card(pid: int, note: str = "") -> Tuple[str, dict]:
+    post = store.get_post(pid)
+    if not post:
+        return board_admin()
+    c = store.get_chat(post["chat"])
+    text = (f"📌 <b>Объявление</b> · {board.LABELS[post['kind']]}\n{uname(c)} · <code>{post['chat']}</code>"
+            + (f" · {post['stars']} ⭐" if post["stars"] else " · бесплатно") + ("\n🖼 с фото" if post.get("photo") else "")
+            + f"\n\n<blockquote>{esc(post['text'])}</blockquote>" + (f"\n{note}" if note else ""))
+    rows = []
+    if post["status"] == "review":
+        rows.append([btn("✅ Опубликовать", f"ad:ja:{pid}", "success"), btn("🚫 Отклонить", f"ad:jr:{pid}", "danger")])
+    rows.append([btn("👤 Автор", f"ad:uc:{post['chat']}"), btn("⬅️ Объявления", "ad:jq")])
+    return text, ikb(rows)
+
+
+# ---------- канал ----------
+
+def channel_admin(note: str = "") -> Tuple[str, dict]:
+    r = channel.rights()
+    delay = int(store.setting("channel_delay"))
+    yes = lambda on: "да" if on else "нет"  # noqa: E731
+    text = (f"📢 <b>Канал {esc(channel.username())}</b>\n\n<blockquote>"
+            f"Бот в канале: <b>{esc(r['status'])}</b>\nМожет публиковать: <b>{yes(r['post'])}</b> · закреплять: <b>{yes(r['pin'])}</b>\n"
+            f"Посты о датах: <b>{f'через {delay} мин' if delay else 'выключены'}</b>\n"
+            f"Сегодня постов о датах: <b>{store.metric(store.today_key(), 'channel_posts')}</b></blockquote>\n"
+            "<i>В боте даты приходят сразу, в канале с задержкой: это ведёт людей в бота.</i>"
+            + (f"\n\n{note}" if note else ""))
+    return text, ikb([
+        [btn("Задержка, мин", "noop")],
+        [btn(("✅ " if n == delay else "") + (str(n) if n else "Выкл"), f"ad:cm:{n}") for n in (0, 15, 30, 60)],
+        [btn("📌 Опубликовать и закрепить пост о канале", "ad:cw")],
+        [url("📢 Открыть канал", channel.link()), BACK],
+    ])
 
 
 # ---------- промокоды ----------
@@ -772,6 +856,53 @@ def on_callback(chat: int, mid: int, data: str) -> Optional[str]:
         if p and p.get("draft"):
             tg.call("deleteMessage", chat_id=chat, message_id=p["draft"])
         tg.show(chat, *panel(), mid=mid, banner=views.banner("admin"))
+    elif kind == "ty":
+        if rest.isdigit() and int(rest) in (0, 24, 72, 168):
+            store.set_setting("trial_hours", int(rest))
+            checker.event(f"⚙️ Пробный период: {rest} ч")
+        tg.show(chat, *trial_admin(), mid=mid)
+    elif kind == "tp":
+        text, _ = views.trial_view(chat)
+        tg.show(chat, text, ikb([[btn("⬅️ Пробный период", "ad:ty")]]), mid=mid, banner=views.banner("trial"))
+    elif kind == "jq":
+        tg.show(chat, *board_admin(), mid=mid)
+    elif kind == "jc" and rest.isdigit():
+        tg.show(chat, *board_card(int(rest)), mid=mid)
+    elif kind == "jp":
+        key, _, value = rest.partition(":")
+        if key in ("post_job", "post_ad") and value.isdigit():
+            store.set_setting(key, int(value))
+        tg.show(chat, *board_admin(), mid=mid)
+    elif kind == "ja" and rest.isdigit():
+        post = store.get_post(int(rest))
+        if not post or post["status"] != "review":
+            return "Уже решено"
+        if not board.publish(post):
+            return "Канал не принял пост: проверь права бота"
+        checker.event(f"📌 Опубликовано объявление {rest}", "user")
+        tg.show(chat, *board_admin("✅ Опубликовано"), mid=mid)
+    elif kind == "jr" and rest.isdigit():
+        tg.show(chat, f"🚫 Почему отклоняем объявление {rest}?", ikb([
+            [btn("Не по правилам", f"ad:jd:{rest}:rules"), btn("Нет контакта", f"ad:jd:{rest}:contact")],
+            [btn("Обман или продажа записей", f"ad:jd:{rest}:scam")], [btn("⬅️ Назад", f"ad:jc:{rest}")]]), mid=mid)
+    elif kind == "jd":
+        pid, _, reason = rest.partition(":")
+        post = store.get_post(int(pid)) if pid.isdigit() else None
+        if not post or post["status"] != "review" or reason not in board.REASONS:
+            return "Уже решено"
+        ok = board.reject(post, reason)
+        checker.event(f"📌 Отклонено объявление {pid}", "user")
+        tg.show(chat, *board_admin("🚫 Отклонено" + ("" if ok else ". ⚠️ Звёзды вернуть не вышло, сделай это вручную")), mid=mid)
+    elif kind == "cl":
+        tg.show(chat, *channel_admin(), mid=mid)
+    elif kind == "cm" and rest.isdigit():
+        if int(rest) in (0, 15, 30, 60):
+            store.set_setting("channel_delay", int(rest))
+        tg.show(chat, *channel_admin(), mid=mid)
+    elif kind == "cw":
+        status = channel.pin_welcome()
+        tg.show(chat, *channel_admin({"ok": "✅ Пост опубликован и закреплён", "pin": "⚠️ Пост опубликован, но закрепить не вышло",
+                                      "post": "⚠️ Канал не принял пост: проверь права бота"}[status]), mid=mid)
     elif kind == "pw":
         store.set_setting("maintenance", 0 if store.setting("maintenance") else 1)
         checker.event(f"🚧 Техработы: {'включены' if store.setting('maintenance') else 'выключены'}")
