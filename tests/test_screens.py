@@ -1,4 +1,4 @@
-"""Обходит все экраны: разметка, которую примет Telegram, длина текста, данные кнопок, оба языка."""
+"""Обходит все экраны: разметка, которую примет Telegram, длина текста, данные кнопок, все четыре языка."""
 import os
 import sys
 import tempfile
@@ -68,14 +68,16 @@ class Screens(unittest.TestCase):
     def setUpClass(cls):
         tg.call = lambda method, _timeout=40, **p: {"ok": True, "result": "https://t.me/$inv" if method == "createInvoiceLink" else {"amount": 5, "message_id": 9, "status": "member"}}
         store.init()
-        for chat, lang in ((1, "ru"), (2, "uk"), (3, "ru"), (4, "uk")):
+        for chat, lang in ((1, "ru"), (2, "uk"), (3, "ru"), (4, "uk"), (5, "es"), (6, "en"), (7, "es"), (8, "en")):
             store.touch_chat(chat, "<Имя> & Co", "user_name")
             store.set_chat(chat, lang=lang)
         premium.grant(3, 240, "t")
         premium.grant(4, 240, "t")
+        premium.grant(7, 240, "t")
+        premium.grant(8, 240, "t")
         res = [{"status": "available", "tramite": "x", "days": [["2030-01-07", "bajaOcupacion"], ["2030-02-11", "altaOcupacion"]],
                 "hours": ["09:00", "09:10"], "address": "Calle <A> & B", "schedule": "L-V"}]
-        for chat in (1, 2, 3, 4):
+        for chat in range(1, 9):
             a, _ = store.add_sub(chat, "486", "CYV", "Conductores / Vehículos")
             store.update_sub(a["id"], last=res, checked_at=int(time.time()))
             b, _ = store.add_sub(chat, "545", "CNJ", "Canjes")
@@ -88,7 +90,7 @@ class Screens(unittest.TestCase):
         store.add_campaign("Кампания", {"type": "text", "text": "Текст"}, "Кнопка", "https://example.org", "all")
 
     def test_user_screens(self):
-        for chat in (1, 2, 3, 4):
+        for chat in range(1, 9):
             lang = views.lang_of(chat)
             for name, screen in {
                 "dashboard": views.dashboard(chat, "<Имя>", int(time.time()) + 300, "заметка"), "offices": views.offices(chat, 2),
@@ -117,7 +119,7 @@ class Screens(unittest.TestCase):
 
     def test_signal_screens(self):
         sig = {"id": 7, "chat": 9, "province": "38", "doc": "ukr", "ok_votes": 0, "no_votes": 0, "created_at": 1}
-        for chat in (1, 2, 3, 4):
+        for chat in range(1, 9):
             signals.subscribe(chat, "38", "ukr")
             lang = views.lang_of(chat)
             for name, screen in {

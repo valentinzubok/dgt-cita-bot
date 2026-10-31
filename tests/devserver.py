@@ -27,38 +27,53 @@ dgt.check = lambda cid, area: [dgt.Result("full", "demo")]
 store.init()
 
 
-def link(uid, name, lang):
+DARK = {"bg_color": "#17212b", "secondary_bg_color": "#0e1621", "section_bg_color": "#17212b", "text_color": "#f5f5f5", "hint_color": "#708499",
+        "button_color": "#5288c1", "button_text_color": "#ffffff"}
+LIGHT = {"bg_color": "#ffffff", "secondary_bg_color": "#f2f2f7", "text_color": "#000000", "hint_color": "#8e8e93",
+         "button_color": "#e11d48", "button_text_color": "#ffffff", "section_bg_color": "#ffffff"}
+
+
+def link(uid, name, lang, dark=False):
     store.touch_chat(uid, name, "")
     store.set_chat(uid, lang=lang)
     fields = {"auth_date": str(int(time.time())), "query_id": "AAdev", "user": json.dumps({"id": uid, "first_name": name})}
     check = "\n".join(f"{k}={v}" for k, v in sorted(fields.items()))
     secret = hmac.new(b"WebAppData", b"123:DEV", hashlib.sha256).digest()
     fields["hash"] = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
-    theme = quote(json.dumps({"bg_color": "#ffffff", "secondary_bg_color": "#f2f2f7", "text_color": "#000000", "hint_color": "#8e8e93",
-                              "button_color": "#e11d48", "button_text_color": "#ffffff", "section_bg_color": "#ffffff"}))
+    theme = quote(json.dumps(DARK if dark else LIGHT))
     return f"http://localhost:8791/app#tgWebAppData={quote(urlencode(fields))}&tgWebAppVersion=9.0&tgWebAppPlatform=ios&tgWebAppThemeParams={theme}"
 
 
-def seed():
-    paid = 11
-    premium.grant(paid, 24 * 12, "demo") if store.get_chat(paid).get("created_at") else None
-    today = views.today()
+def seed(paid):
     from datetime import timedelta
+    premium.grant(paid, 24 * 12, "demo")
+    today = views.today()
     days = [[(today + timedelta(days=n)).isoformat(), load] for n, load in
             ((6, "altaOcupacion"), (7, "altaOcupacion"), (9, "mediaOcupacion"), (10, "bajaOcupacion"), (13, "bajaOcupacion"), (14, "bajaOcupacion"), (41, "bajaOcupacion"))]
+    empty = {"status": "full", "tramite": "x", "days": [], "hours": [], "address": "", "schedule": ""}
     a, _ = store.add_sub(paid, "486", "CYV", "Conductores / Vehículos")
     store.update_sub(a["id"], last=[{"status": "available", "tramite": "x", "days": days, "hours": ["09:20", "10:40", "11:10", "12:30"],
                                      "address": "Avda. Primero de Mayo 7, Murcia", "schedule": "L-V 9:00-14:00"}], checked_at=int(time.time()))
     b, _ = store.add_sub(paid, "526", "VEH", "Vehículos")
-    store.update_sub(b["id"], last=[{"status": "full", "tramite": "x", "days": [], "hours": [], "address": "", "schedule": ""}], checked_at=int(time.time()))
+    store.update_sub(b["id"], last=[empty], checked_at=int(time.time()))
     c, _ = store.add_sub(paid, "545", "CNJ", "Canjes")
-    store.update_sub(c["id"], paused=1, last=[{"status": "full", "tramite": "x", "days": [], "hours": [], "address": "", "schedule": ""}])
+    store.update_sub(c["id"], last=[{**empty, "status": "needs_data"}], checked_at=int(time.time()))
+    d, _ = store.add_sub(paid, "491", "SAN", "Sanciones")
+    store.update_sub(d["id"], booked_date=(today + timedelta(days=9)).isoformat(), booked_time="10:40", paused=1, last=[empty])
+    store.add_signal_sub(paid, "28", "tie")
+    now = int(time.time())
+    for hours, lasted, count in ((5, 26, 3), (29, 14, 1), (53, 41, 6)):
+        store.write("INSERT INTO events (centro, area, opened_at, closed_at, days) VALUES (?, ?, ?, ?, ?)",
+                    ("486", "CYV", now - hours * 3600, now - hours * 3600 + lasted * 60, count))
 
 
-premium_url, free_url = link(11, "Valentyn", "ru"), link(12, "Olena", "uk")
-seed()
+urls = {"premium": link(11, "Valentyn", "ru"), "free": link(12, "Olena", "uk"), "dark": link(13, "María", "es", True), "en": link(14, "Anna", "en")}
+for chat in (11, 13, 14):
+    seed(chat)
+store.add_task("channel", "Подпишись на канал OkSita News", "Підпишись на канал OkSita News", "@oksita_news", "https://t.me/oksita_news", 12,
+               "Suscríbete al canal OkSita News", "Join the OkSita News channel")
 store.flush()
 out = Path(os.environ.get("DEV_URLS", "/tmp/claude-501/oksita-dev-urls.json"))
-out.write_text(json.dumps({"premium": premium_url, "free": free_url}))
+out.write_text(json.dumps(urls))
 print("mini app dev server on http://localhost:8791/app", flush=True)
 webapp.serve(8791).serve_forever()

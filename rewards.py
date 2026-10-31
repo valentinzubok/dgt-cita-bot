@@ -17,10 +17,11 @@ import tg
 log = logging.getLogger("rewards")
 
 MEMBER = {"creator", "administrator", "member"}
-BUILTIN = {  # задания, которые бот проверяет сам: ключ → (русский, украинский, часов Premium)
-    "b:sub": ("Добавь первый офис", "Додай перший офіс", 6),
-    "b:ads": ("Включи предложения партнёров", "Увімкни пропозиції партнерів", 24),
-    "b:book": ("Запишись и нажми «✅ Я записался»", "Запишись і натисни «✅ Я записався»", 24),
+BUILTIN = {  # задания, которые бот проверяет сам: ключ → (название на четырёх языках, часов Premium)
+    "b:sub": ("Добавь первый офис", "Додай перший офіс", "Añade tu primera oficina", "Add your first office", 6),
+    "b:ads": ("Включи предложения партнёров", "Увімкни пропозиції партнерів", "Activa las ofertas de socios", "Turn on partner offers", 24),
+    "b:book": ("Запишись и нажми «✅ Я записался»", "Запишись і натисни «✅ Я записався»",
+               "Pide cita y pulsa «✅ Ya tengo cita»", "Book and tap “✅ I booked it”", 24),
 }
 CODE_RE = re.compile(r"^[A-Za-z0-9_-]{3,32}$")
 _tries: dict = {}
@@ -121,7 +122,7 @@ def collect(inviter: int) -> Tuple[str, int]:
 
 def complete_builtin(chat: int, key: str) -> Optional[int]:
     """Встроенное задание выполнено. Возвращает часы награды, если начислено впервые."""
-    hours = BUILTIN[key][2]
+    hours = BUILTIN[key][-1]
     if store.claim_task(key, chat):
         premium.grant(chat, hours, key)
         return hours

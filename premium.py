@@ -19,6 +19,18 @@ PLANS = {
     "p90": {"days": 90, "price": "price_90", "recurring": False},
 }
 BOOKED_EFFECT = "5046509860389126442"  # 🎉
+INVOICE = {  # заголовок счёта и описание: подставляются срок, офисы и интервал проверки
+    "ru": ("{days} дней", "До {subs} офисов, проверка каждые {mins} минут, радар без ограничений, мини-приложение, без рекламы."),
+    "uk": ("{days} днів", "До {subs} офісів, перевірка кожні {mins} хвилин, радар без обмежень, міні-застосунок, без реклами."),
+    "es": ("{days} días", "Hasta {subs} oficinas, revisión cada {mins} minutos, radar sin límites, miniapp y sin publicidad."),
+    "en": ("{days} days", "Up to {subs} offices, checks every {mins} minutes, unlimited radar, mini app, no ads."),
+}
+CHECKOUT = {  # ответ Telegram на оплату: цена изменилась, технические работы
+    "ru": ("Цена изменилась. Открой оплату заново.", "Идут технические работы, оплата временно закрыта. Попробуй позже."),
+    "uk": ("Ціна змінилася. Відкрий оплату знову.", "Тривають технічні роботи, оплату тимчасово закрито. Спробуй пізніше."),
+    "es": ("El precio ha cambiado. Vuelve a abrir el pago.", "Estamos en mantenimiento y los pagos están cerrados. Inténtalo más tarde."),
+    "en": ("The price has changed. Open the payment again.", "Maintenance in progress, payments are temporarily closed. Try again later."),
+}
 _links: Dict[Tuple[str, int, str], str] = {}  # ссылка на оплату живёт долго — не создаём её на каждое нажатие
 
 
@@ -65,13 +77,9 @@ def invoice_link(plan: str, lang: str) -> Optional[str]:
     key = (plan, price, lang)
     if key in _links:
         return _links[key]
-    days = info["days"]
-    if lang == "uk":
-        title = f"{config.BRAND} Premium — {days} днів"
-        text = "До 10 офісів, перевірка кожні 5 хвилин, радар без обмежень, міні-застосунок, без реклами."
-    else:
-        title = f"{config.BRAND} Premium — {days} дней"
-        text = "До 10 офисов, проверка каждые 5 минут, радар без ограничений, мини-приложение, без рекламы."
+    period, about = INVOICE.get(lang, INVOICE["ru"])
+    title = f"{config.BRAND} Premium — " + period.format(days=info["days"])
+    text = about.format(subs=store.setting("max_subs"), mins=store.setting("interval_premium"))
     params = {"title": title, "description": text, "payload": f"plan:{plan}", "provider_token": "", "currency": "XTR",
               "prices": [{"label": title, "amount": price}]}
     if info["recurring"]:
@@ -92,12 +100,12 @@ def on_pre_checkout(query: dict, site_down: bool) -> None:
     """Telegram даёт 10 секунд на ответ: здесь только проверки в памяти."""
     plan = plan_of(query.get("invoice_payload"))
     lang = store.get_chat(query["from"]["id"]).get("lang") or "ru"
+    changed, closed = CHECKOUT.get(lang, CHECKOUT["ru"])
     error = None
     if not plan or query.get("currency") != "XTR" or query.get("total_amount") != plan_price(plan):
-        error = "Цена изменилась. Открой оплату заново." if lang == "ru" else "Ціна змінилася. Відкрий оплату знову."
+        error = changed
     elif site_down:
-        error = ("Идут технические работы, оплата временно закрыта. Попробуй позже."
-                 if lang == "ru" else "Тривають технічні роботи, оплату тимчасово закрито. Спробуй пізніше.")
+        error = closed
     p = {"pre_checkout_query_id": query["id"], "ok": error is None}
     if error:
         p["error_message"] = error

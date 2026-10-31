@@ -9,7 +9,8 @@ import logging
 import re
 import threading
 import time
-from collections import deque
+from collections import Counter, deque
+from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable, Dict, Optional, Tuple
 from urllib.parse import parse_qs, parse_qsl, urlsplit
@@ -22,8 +23,11 @@ import dgt
 import premium
 import radar
 import rewards
+import signals
 import store
+import tg
 import views
+from centros import COORDS
 
 log = logging.getLogger("web")
 
@@ -35,15 +39,19 @@ CSP = ("default-src 'none'; script-src 'self' https://telegram.org; style-src 's
        "frame-ancestors https://web.telegram.org https://*.telegram.org https://t.me")
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
          ".css": "text/css; charset=utf-8", ".jpg": "image/jpeg", ".png": "image/png", ".svg": "image/svg+xml"}
-FILES = {"/app": "webapp/index.html", "/app/app.js": "webapp/app.js", "/app/style.css": "webapp/style.css",
+FILES = {"/app": "webapp/index.html", "/app/app.js": "webapp/app.js", "/app/i18n.js": "webapp/i18n.js", "/app/style.css": "webapp/style.css",
          "/app/icon.png": "assets/avatar.png", "/app/mark.svg": "assets/mark.svg", "/static/banner.jpg": "assets/banner.jpg",
          "/static/banner_premium.jpg": "assets/banner_premium.jpg", "/static/banner_bonus.jpg": "assets/banner_bonus.jpg",
          "/static/banner_radar.jpg": "assets/banner_radar.jpg", "/static/banner_admin.jpg": "assets/banner_admin.jpg",
          "/static/banner_docs.jpg": "assets/banner_docs.jpg"}
+STATES = {"🟢": "free", "🟡": "later", "🔴": "full", "⏸": "paused", "✅": "booked", "⏳": "pending",
+          "⚠️": "error", "🔐": "locked", "⚪️": "none", "❔": "error"}
+LOADS = {"bajaOcupacion": "many", "mediaOcupacion": "mid", "altaOcupacion": "few"}
 _cache: Dict[str, Tuple[bytes, bytes, str]] = {}
 _hits: Dict[int, deque] = {}
 _hits_lock = threading.Lock()
 on_update: Callable[[dict], None] = lambda update: None  # подставляет bot.py
+on_lang: Callable[[int], None] = lambda chat: None  # подставляет bot.py: перерисовать экран в чате на новом языке
 
 
 def validate_init_data(raw: str, now: Optional[float] = None) -> Optional[dict]:
@@ -82,61 +90,133 @@ def rate_ok(chat: int, limit: int = 40, window: int = 10) -> bool:
         return True
 
 
+def area_icon(label: str) -> str:
+    cats = views.cats_of(label)
+    return "mix" if cats == {"lic", "veh"} else next(iter(cats)) if cats else "doc"
+
+
 def sub_payload(sub: dict, lang: str) -> dict:
     days = views.all_days(sub.get("last"), sub.get("max_days"))
     emoji, text = views.summary(sub, lang)
-    info = next((r for r in sub.get("last") or [] if r.get("address")), {})
-    return {
+    last = sub.get("last") or []
+    info = next((r for r in last if r.get("address")), {})
+    area = views.sub_area(sub)
+    data = {
         "id": sub["id"], "city": views.city(sub["centro"]), "centro": sub["centro"], "area": sub["area"],
-        "type": views.sub_area(sub), "emoji": views.area_emoji(views.sub_area(sub)),
-        "status": emoji, "statusText": text, "paused": bool(sub["paused"]), "filter": sub.get("max_days") or 0,
+        "type": area, "hint": views.area_hint(lang, area), "icon": area_icon(area),
+        "state": STATES.get(emoji, "error"), "statusText": views.cap(text), "paused": bool(sub["paused"]), "filter": sub.get("max_days") or 0,
         "booked": sub.get("booked_date"), "bookedTime": sub.get("booked_time"),
-        "days": [[iso, views.LOAD.get(load, "")] for iso, load in views.all_days(sub.get("last"))],
-        "nearest": days[0][0] if days else None, "hours": views.hours_for(sub.get("last"), days[0][0]) if days else [],
+        "days": [[iso, LOADS.get(load, "")] for iso, load in views.all_days(last)],
+        "visible": [iso for iso, _ in days], "nearest": days[0][0] if days else None,
+        "hoursBy": {r["days"][0][0]: r.get("hours") or [] for r in last if r.get("status") == dgt.AVAILABLE and r.get("days")},
         "address": info.get("address") or "", "schedule": info.get("schedule") or "",
-        "checkedAt": sub.get("checked_at"),
+        "checked": views.fmt_ts(sub["checked_at"], lang) if sub.get("checked_at") else "",
     }
+    if sub.get("booked_date"):
+        data.update(bookedLabel=views.booked_label(lang, sub), checklist=views.checklist(lang, sub),
+                    past=date.fromisoformat(sub["booked_date"]) < views.today())
+    if data["state"] == "locked":
+        data["note"] = views.canje_note(lang)
+    return data
+
+
+def bonus_payload(chat: int, lang: str) -> dict:
+    friends = store.friends_of(chat)
+    tasks = [{"key": key, "title": views.tx(lang, *names), "reward": views.hours_text(lang, hours), "done": store.task_is_done(key, chat)}
+             for key, (*names, hours) in rewards.BUILTIN.items()]
+    tasks += [{"key": f"t:{t['id']}", "id": t["id"], "title": views.task_title(lang, t), "reward": views.hours_text(lang, t["hours"]),
+               "done": store.task_is_done(f"t:{t['id']}", chat), "url": rewards.task_url(t, chat)} for t in store.tasks(active_only=True)]
+    return {"refLink": rewards.ref_link(chat), "shareText": views.invite_text(lang), "deal": views.ref_deal(lang), "friends": len(friends),
+            "friendsCounted": sum(1 for f in friends if f.get("ref_done_at")), "pending": len(rewards.pending_friends(chat)), "tasks": tasks}
 
 
 def me_payload(chat: int) -> dict:
     c = store.get_chat(chat)
     lang = c.get("lang") or "ru"
     paid = premium.is_premium(chat)
-    data = {"lang": lang, "name": c.get("name") or "", "premium": paid, "premiumUntil": c.get("premium_until") or 0,
-            "autoRenew": bool(c.get("sub_active")), "limit": premium.limit_subs(chat), "bot": config.BOT_USERNAME,
-            "outage": checker.site_down(), "plans": [
+    data = {"lang": lang, "langSet": bool(c.get("lang")), "name": c.get("name") or "", "premium": paid, "premiumUntil": c.get("premium_until") or 0,
+            "autoRenew": bool(c.get("sub_active")), "limit": premium.limit_subs(chat), "bot": config.BOT_USERNAME, "bookUrl": dgt.START_URL,
+            "outage": checker.site_down(), "quiet": bool(c.get("quiet")), "adsOk": bool(c.get("ads_ok")), "plans": [
                 {"id": p, "days": premium.PLANS[p]["days"], "stars": premium.plan_price(p),
                  "recurring": premium.PLANS[p]["recurring"]} for p in ("p30", "p7", "p90")],
-            "free": {"subs": store.setting("free_subs"), "interval": store.setting("interval")},
-            "top": {"subs": store.setting("max_subs"), "interval": store.setting("interval_premium")}}
+            "free": {"subs": store.setting("free_subs"), "interval": store.setting("interval"), "signals": signals.FREE_SUBS},
+            "top": {"subs": store.setting("max_subs"), "interval": store.setting("interval_premium"), "signals": signals.TOP_SUBS}}
     if paid:
-        subs = store.subs_of(chat)
-        friends = store.friends_of(chat)
-        data.update(subs=[sub_payload(s, lang) for s in subs], nextCheck=checker.next_check_for(chat),
-                    used=premium.active_subs_count(chat), refLink=rewards.ref_link(chat), friends=len(friends),
-                    friendsCounted=sum(1 for f in friends if f.get("ref_done_at")), alerts=c.get("alerts") or 0)
+        data.update(subs=[sub_payload(s, lang) for s in store.subs_of(chat)], nextCheck=checker.next_check_for(chat),
+                    used=premium.active_subs_count(chat), alerts=c.get("alerts") or 0, checksPaused=bool(store.setting("checks_paused")),
+                    **bonus_payload(chat, lang))
     return data
 
 
-def api(method: str, path: str, query: dict, body: dict, chat: int) -> Tuple[int, dict]:
-    c = store.get_chat(chat)
-    if c.get("role") in ("banned", "pending"):
-        return 403, {"error": "forbidden"}
-    parts = [p for p in path.split("/") if p][1:]  # без «api»
+def docs_payload(chat: int, lang: str) -> dict:
+    names = sorted(signals.PROVINCES.items(), key=lambda kv: views.fold(kv[1]))
+    mine = [{"province": p, "doc": d, "name": signals.PROVINCES[p], "title": views.doc_name(lang, d), "hour": signals.best_hour(p, d)}
+            for p, d in signals.subs_of(chat)]
+    return {"mine": mine, "limit": signals.limit(chat), "site": signals.ICP_URL, "provinces": [{"id": k, "name": v} for k, v in names],
+            "docs": [{"id": d, "title": views.doc_name(lang, d)} for d in signals.DOCS]}
+
+
+def radar_payload(chat: int, lang: str) -> dict:
+    job = radar.scans.get(chat)
+    if not job:
+        return {"state": "idle"}
+    job["seen"] = time.time()
+    if job["failed"] or (job["over"] and job["found"] is None):
+        return {"state": "failed", "text": views.radar_failed(lang)}
+    if not job["over"]:
+        return {"state": "running", "done": job["done"], "total": job["total"], "current": job["current"]}
+    tracked = {(s["centro"], s["area"]) for s in store.subs_of(chat)}
+    items = []
+    for centro, code, results, dist in job["found"]:
+        days = views.all_days(results) if results else []
+        state = "free" if days else "none" if code is None else "error" if results is None else \
+            "locked" if any(r.get("status") == dgt.NEEDS_DATA for r in results) else "full"
+        items.append({"centro": centro, "city": views.city(centro), "km": dist, "code": code, "state": state,
+                      "nearest": days[0][0] if days else None, "days": len(days), "tracked": (centro, code) in tracked})
+    return {"state": "done", "km": job["km"], "cat": job["cat"], "items": items}
+
+
+PAGES = {"help": views.help_view, "terms": views.terms_view, "privacy": views.privacy_view, "ukraine": views.ukraine_view}
+
+
+def account_api(method: str, parts: list, body: dict, chat: int, c: dict) -> Optional[Tuple[int, dict]]:
+    """Запросы, доступные без Premium: язык, настройки, оплата, страницы с текстами."""
+    lang = c.get("lang") or "ru"
     if parts == ["me"] and method == "GET":
         return 200, me_payload(chat)
+    if parts == ["lang"] and method == "POST":
+        code = body.get("lang")
+        if code not in config.LANGS:
+            return 400, {"error": "lang"}
+        store.set_chat(chat, lang=code)
+        actions.jobs.submit(on_lang, chat)  # экран в чате переводим сразу, а не при следующем нажатии
+        return 200, {"status": "ok"}
+    if parts == ["settings"] and method == "POST":
+        if isinstance(body.get("quiet"), bool):
+            store.set_chat(chat, quiet=int(body["quiet"]))
+        if isinstance(body.get("ads"), bool):
+            actions.set_ads(chat, body["ads"])
+        return 200, {"status": "ok"}
+    if len(parts) == 2 and parts[0] == "page" and parts[1] in PAGES and method == "GET":
+        return 200, {"text": PAGES[parts[1]](chat)[0]}
     if parts == ["invoice"] and method == "POST":
         plan = body.get("plan")
         if plan not in premium.PLANS or checker.site_down():
             return 400, {"error": "unavailable"}
-        link = premium.invoice_link(plan, c.get("lang") or "ru")
+        link = premium.invoice_link(plan, lang)
         return (200, {"link": link}) if link else (502, {"error": "telegram"})
-    if not premium.is_premium(chat):
-        return 402, {"error": "premium"}
+    if parts == ["promo"] and method == "POST":
+        status, hours = rewards.apply_promo(chat, str(body.get("code") or "")[:40])
+        return 200, {"status": status, "text": views.promo_result(lang, status, hours)}
+    return None
 
+
+def office_api(method: str, parts: list, query: dict, body: dict, chat: int, lang: str) -> Optional[Tuple[int, dict]]:
+    """Офисы и подписки."""
     if parts == ["offices"] and method == "GET":
         items = sorted(((views.city(k), k) for k in dgt.CENTROS), key=lambda x: views.fold(x[0]))
-        return 200, {"offices": [{"id": k, "city": name} for name, k in items]}
+        cats = [{"id": cat, "label": views.tx(lang, *names)} for cat, (_, *names) in views.CATS.items() if cat != "cnj"]
+        return 200, {"offices": [{"id": k, "city": name} for name, k in items], "cats": cats}
     if parts == ["areas"] and method == "GET":
         cid = (query.get("office") or [""])[0]
         if cid not in dgt.CENTROS:
@@ -144,39 +224,107 @@ def api(method: str, path: str, query: dict, body: dict, chat: int) -> Tuple[int
         options = actions.office_options(cid, allow_fetch=not checker.site_down())
         if not options:
             return 503, {"error": "site"}
-        lang = c.get("lang") or "ru"
-        return 200, {"areas": [{"code": code, "label": views.area_label(code, label), "emoji": views.area_emoji(label),
+        return 200, {"areas": [{"code": code, "label": views.area_label(code, label), "icon": area_icon(label),
                                 "hint": views.area_hint(lang, label)} for code, label in options]}
     if parts == ["subs"] and method == "POST":
         status, sub = actions.add_subscription(chat, str(body.get("centro") or ""), str(body.get("area") or ""))
-        if status == "ok":
+        if status == "ok" and not checker.site_down():
             actions.check_now(sub)
         return (200 if status in ("ok", "exists") else 409), {"status": status}
-    if len(parts) >= 2 and parts[0] == "subs" and parts[1].isdigit():
-        sub = store.get_sub(int(parts[1]))
-        if not sub or sub["chat"] != chat:
-            return 404, {"error": "not found"}
-        action = parts[2] if len(parts) > 2 else ""
-        if method == "POST" and action == "pause":
-            status = actions.set_paused(sub, bool(body.get("paused")))
-            return (200 if status == "ok" else 409), {"status": status}
-        if method == "POST" and action == "filter":
-            days = body.get("days")
-            return (200, {"status": "ok"}) if isinstance(days, int) and actions.set_filter(sub, days) else (400, {"error": "days"})
-        if method == "POST" and action == "delete":
-            actions.remove_sub(sub)
+    if len(parts) < 2 or parts[0] != "subs" or not parts[1].isdigit():
+        return None
+    sub = store.get_sub(int(parts[1]))
+    if not sub or sub["chat"] != chat:
+        return 404, {"error": "not found"}
+    action = parts[2] if len(parts) > 2 else ""
+    if method == "POST" and action == "pause":
+        status = actions.set_paused(sub, bool(body.get("paused")))
+        return (200 if status == "ok" else 409), {"status": status}
+    if method == "POST" and action == "filter":
+        days = body.get("days")
+        return (200, {"status": "ok"}) if isinstance(days, int) and actions.set_filter(sub, days) else (400, {"error": "days"})
+    if method == "POST" and action == "delete":
+        actions.remove_sub(sub)
+        return 200, {"status": "ok"}
+    if method == "POST" and action == "check":
+        if checker.site_down():
+            return 503, {"error": "site"}
+        if not rate_ok(-chat, 1, 60):
+            return 429, {"error": "wait"}
+        actions.check_now(sub)
+        return 200, {"status": "ok"}
+    if method == "POST" and action == "book":
+        iso, hhmm = body.get("date"), body.get("time")
+        if not actions.valid_iso(iso) or not (hhmm is None or re.fullmatch(r"\d{2}:\d{2}", str(hhmm))):
+            return 400, {"error": "date"}
+        actions.book(sub, iso, hhmm)
+        return 200, {"status": "ok"}
+    if method == "POST" and action == "unbook":
+        tg.delete(chat, sub.get("alert_msg"))
+        return 200, {"status": "ok", "resumed": actions.unbook(sub)}
+    if method == "GET" and action == "history":
+        evs = store.events(sub["centro"], sub["area"], 10)
+        hours = Counter(datetime.fromtimestamp(e["opened_at"], config.TZ).hour for e in evs).most_common(1) if len(evs) >= 3 else []
+        closed = [e["closed_at"] - e["opened_at"] for e in evs if e["closed_at"]]
+        return 200, {"events": [{"at": views.fmt_ts(e["opened_at"], lang), "lasted": views.fmt_dur(e["closed_at"] - e["opened_at"], lang) if e["closed_at"] else "",
+                                 "days": views.days_word(lang, e["days"] or 0)} for e in evs],
+                     "bestHour": hours[0][0] if hours else None, "average": views.fmt_dur(sum(closed) // len(closed), lang) if closed else ""}
+    return None
+
+
+def extras_api(method: str, parts: list, body: dict, chat: int, lang: str) -> Optional[Tuple[int, dict]]:
+    """Радар, документы, бонусы и автопродление."""
+    if parts == ["radar"] and method == "GET":
+        return 200, radar_payload(chat, lang)
+    if parts == ["radar"] and method == "POST":
+        cid, cat, km = str(body.get("centro") or ""), body.get("cat"), body.get("km")
+        if cid not in COORDS or cid not in dgt.CENTROS or cat not in views.CATS or km not in radar.RADII:
+            return 400, {"error": "radar"}
+        hint = radar.start_app(chat, cid, cat, km)
+        return (409, {"text": hint}) if hint else (200, {"status": "ok"})
+    if parts == ["docs"] and method == "GET":
+        return 200, docs_payload(chat, lang)
+    if len(parts) == 2 and parts[0] == "docs" and method == "POST":
+        province, doc = str(body.get("province") or ""), str(body.get("doc") or "")
+        if not signals.valid(province, doc):
+            return 400, {"error": "doc"}
+        if parts[1] == "sub":
+            status = signals.subscribe(chat, province, doc)
+            return (409, {"text": views.signal_limit(lang)}) if status == "limit" else (200, {"text": views.signal_added(lang)})
+        if parts[1] == "unsub":
+            store.del_signal_sub(chat, province, doc)
             return 200, {"status": "ok"}
-        if method == "POST" and action == "check":
-            if checker.site_down():
-                return 503, {"error": "site"}
-            if not rate_ok(-chat, 1, 60):
-                return 429, {"error": "wait"}
-            actions.check_now(sub)
-            return 200, {"status": "ok"}
-        if method == "GET" and action == "history":
-            evs = store.events(sub["centro"], sub["area"], 10)
-            return 200, {"events": [{"at": e["opened_at"], "closed": e["closed_at"], "days": e["days"]} for e in evs]}
-    return 404, {"error": "not found"}
+        if parts[1] == "report":
+            status, sent = actions.report_signal(chat, province, doc)
+            return 200, {"status": status, "text": views.signal_result(lang, status, sent)}
+    if parts == ["bonus", "collect"] and method == "POST":
+        status, count = rewards.collect(chat)
+        return 200, {"status": status, "text": views.collect_text(lang, status, count)}
+    if len(parts) == 3 and parts[0] == "tasks" and parts[1].isdigit() and parts[2] == "check" and method == "POST":
+        status, hours = rewards.check_task(chat, int(parts[1]))
+        if status == "ok":
+            actions.after_task(chat)
+        return 200, {"status": status, "text": views.reward_text(lang, hours) if status == "ok" else views.task_result(lang, status)}
+    if parts == ["premium", "cancel"] and method == "POST":
+        ok = premium.cancel(chat)
+        if ok:
+            checker.event(f"🚫 Автопродление отключено ({store.get_chat(chat).get('name') or chat})", "money")
+        return (200 if ok else 502), {"status": "ok" if ok else "failed"}
+    return None
+
+
+def api(method: str, path: str, query: dict, body: dict, chat: int) -> Tuple[int, dict]:
+    c = store.get_chat(chat)
+    if c.get("role") in ("banned", "pending"):
+        return 403, {"error": "forbidden"}
+    parts = [p for p in path.split("/") if p][1:]  # без «api»
+    reply = account_api(method, parts, body, chat, c)
+    if reply:
+        return reply
+    if not premium.is_premium(chat):
+        return 402, {"error": "premium"}
+    lang = c.get("lang") or "ru"
+    return office_api(method, parts, query, body, chat, lang) or extras_api(method, parts, body, chat, lang) or (404, {"error": "not found"})
 
 
 class Handler(BaseHTTPRequestHandler):

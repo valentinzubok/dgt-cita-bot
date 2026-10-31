@@ -159,6 +159,8 @@ SCHEMA = [
 # Колонки, добавленные после первой версии
 MIGRATIONS = [
     ("chats", "username", "TEXT"),
+    ("tasks", "title_es", "TEXT"),
+    ("tasks", "title_en", "TEXT"),
     ("chats", "role", "TEXT NOT NULL DEFAULT 'user'"),
     ("chats", "screen", "BIGINT"),
     ("chats", "last_seen", "BIGINT"),
@@ -818,20 +820,20 @@ def get_task(tid: int) -> Optional[dict]:
         return dict(t) if t else None
 
 
-def add_task(kind: str, title_ru: str, title_uk: str, target: str, link: str, hours: int) -> dict:
+def add_task(kind: str, title_ru: str, title_uk: str, target: str, link: str, hours: int, title_es: str = "", title_en: str = "") -> dict:
     flush()
     now = int(time.time())
-    row = q1("INSERT INTO tasks (kind, title_ru, title_uk, target, link, hours, created_at) "
-             "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id", (kind, title_ru, title_uk, target, link, hours, now))
-    task = {"id": row["id"], "kind": kind, "title_ru": title_ru, "title_uk": title_uk, "target": target, "link": link,
-            "hours": hours, "active": 1, "created_at": now}
+    row = q1("INSERT INTO tasks (kind, title_ru, title_uk, title_es, title_en, target, link, hours, created_at) "
+             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id", (kind, title_ru, title_uk, title_es, title_en, target, link, hours, now))
+    task = {"id": row["id"], "kind": kind, "title_ru": title_ru, "title_uk": title_uk, "title_es": title_es, "title_en": title_en,
+            "target": target, "link": link, "hours": hours, "active": 1, "created_at": now}
     with _mem:
         _tasks[task["id"]] = task
     return dict(task)
 
 
 def set_task(tid: int, **fields) -> None:
-    fields = {k: v for k, v in fields.items() if k in ("active", "hours", "title_ru", "title_uk", "link")}
+    fields = {k: v for k, v in fields.items() if k in ("active", "hours", "title_ru", "title_uk", "title_es", "title_en", "link")}
     with _mem:
         if tid not in _tasks or not fields:
             return

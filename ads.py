@@ -17,8 +17,15 @@ from tg import btn, ikb, url
 log = logging.getLogger("ads")
 
 SEGMENTS = {"all": "👥 Все согласившиеся", "ru": "🇷🇺 Русский язык", "uk": "🇺🇦 Украинский язык",
+            "es": "🇪🇸 Испанский язык", "en": "🇬🇧 Английский язык",
             "subs": "📋 С подписками", "nosubs": "💤 Без подписок"}
-LABEL = {"ru": "📣 Реклама", "uk": "📣 Реклама"}
+LABEL = {"ru": "📣 Реклама", "uk": "📣 Реклама", "es": "📣 Publicidad", "en": "📣 Ad"}
+BUTTONS = {  # подробнее, отключить, скрыть
+    "ru": ("Подробнее", "🔕 Отключить", "✖️ Скрыть"),
+    "uk": ("Детальніше", "🔕 Вимкнути", "✖️ Сховати"),
+    "es": ("Más información", "🔕 Desactivar", "✖️ Ocultar"),
+    "en": ("Learn more", "🔕 Turn off", "✖️ Hide"),
+}
 
 
 def payload_from(msg: dict) -> Optional[dict]:
@@ -63,12 +70,12 @@ def resolve_click(cid: int, chat: int, sig: str) -> Optional[str]:
 
 
 def keyboard(camp: dict, chat: int, lang: str) -> dict:
+    more, stop, hide = BUTTONS.get(lang, BUTTONS["ru"])
     rows = []
     if camp.get("url"):
-        rows.append([url(camp.get("button") or ("Подробнее" if lang == "ru" else "Детальніше"),
+        rows.append([url(camp.get("button") or more,
                          click_url(camp["id"], chat), "primary")])
-    rows.append([btn("🔕 Отключить" if lang == "ru" else "🔕 Вимкнути", "noads"),
-                 btn("✖️ Скрыть" if lang == "ru" else "✖️ Сховати", "hide")])
+    rows.append([btn(stop, "noads"), btn(hide, "hide")])
     return ikb(rows)
 
 
@@ -102,7 +109,7 @@ def recipients(segment: str, ignore_gap: bool = False) -> List[int]:
             continue
         if not ignore_gap and now - (c.get("last_ad") or 0) < gap:
             continue
-        if (segment in ("ru", "uk") and (c.get("lang") or "ru") != segment) or \
+        if (segment in config.LANGS and (c.get("lang") or "ru") != segment) or \
                 (segment == "subs" and chat not in with_subs) or (segment == "nosubs" and chat in with_subs):
             continue
         out.append(chat)

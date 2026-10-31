@@ -5,7 +5,7 @@ import logging
 import math
 import threading
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import checker
 import dgt
@@ -22,10 +22,12 @@ FRESH = 30 * 60            # свежий результат можно взят
 AREAS_TTL = 3 * 86400      # типы записи офиса меняются редко
 COOLDOWN = 60               # даже с Premium не чаще раза в минуту
 RADII = (100, 150, 250)    # доступные радиусы, км; больше 100 — только Premium
+APP_IDLE = 20              # мини-приложение закрыли: столько секунд ждём запросов и останавливаем обход
 
 last_run: Dict[int, float] = {}
 _runs: Dict[int, list] = {}
 busy: set = set()
+scans: Dict[int, dict] = {}  # радар из мини-приложения: ход и результат
 
 
 def distance(a: str, b: str) -> float:
@@ -98,50 +100,104 @@ def runs_today(chat: int) -> int:
     return sum(1 for t in _runs.get(chat, []) if t == day)
 
 
-def start(chat: int, mid: int, cid: str, cat: str, km: int, token: Optional[int] = None) -> Optional[str]:
-    """Запускает радар в фоне. Возвращает текст подсказки, если запустить нельзя."""
+def guard(chat: int, km: int) -> Optional[str]:
+    """Текст подсказки, если запустить радар нельзя."""
     lang = views.lang_of(chat)
     paid = premium.is_premium(chat)
     if checker.site_down():
         return views.tx(lang, "🛠 Идут технические работы, радар временно не работает",
-                        "🛠 Тривають технічні роботи, радар тимчасово не працює")
+                        "🛠 Тривають технічні роботи, радар тимчасово не працює",
+                              "🛠 Estamos en mantenimiento, el radar no funciona temporalmente",
+                              "🛠 Maintenance in progress, radar is temporarily unavailable")
     if chat in busy:
-        return views.tx(lang, "📡 Радар уже работает — подожди результат", "📡 Радар уже працює — зачекай на результат")
+        return views.tx(lang, "📡 Радар уже работает — подожди результат", "📡 Радар уже працює — зачекай на результат",
+                              "📡 El radar ya está en marcha, espera el resultado",
+                              "📡 Radar is already running, wait for the result")
     if not paid and km > RADII[0]:
-        return views.tx(lang, "💎 Поиск дальше 100 км — в Premium", "💎 Пошук далі 100 км — у Premium")
+        return views.tx(lang, "💎 Поиск дальше 100 км — в Premium", "💎 Пошук далі 100 км — у Premium",
+                              "💎 Buscar a más de 100 km es de Premium",
+                              "💎 Searching beyond 100 km is a Premium feature")
     if not paid and runs_today(chat) >= int(store.setting("free_radar_day")):
         return views.tx(lang, "💎 Бесплатно — один радар в день. Без ограничений — в Premium",
-                        "💎 Безкоштовно — один радар на день. Без обмежень — у Premium")
+                        "💎 Безкоштовно — один радар на день. Без обмежень — у Premium",
+                              "💎 Gratis: un radar al día. Sin límites con Premium",
+                              "💎 Free: one radar a day. Unlimited with Premium")
     if time.time() - last_run.get(chat, 0) < COOLDOWN:
-        return views.tx(lang, "📡 Подожди минуту перед новым поиском", "📡 Зачекай хвилину перед новим пошуком")
+        return views.tx(lang, "📡 Подожди минуту перед новым поиском", "📡 Зачекай хвилину перед новим пошуком",
+                              "📡 Espera un minuto antes de otra búsqueda",
+                              "📡 Wait a minute before a new search")
+    return None
+
+
+def _begin(chat: int, cid: str, cat: str, km: int) -> None:
     busy.add(chat)
     last_run[chat] = time.time()
     _runs.setdefault(chat, []).append(store.today_key())
     _runs[chat] = _runs[chat][-8:]
     store.bump("radar")
-    threading.Thread(target=run, args=(chat, mid, cid, cat, km, token), daemon=True).start()
     checker.event(f"📡 Радар: {views.city(cid)}, {cat}, {km} км ({store.get_chat(chat).get('name') or chat})")
+
+
+def scan(cid: str, cat: str, km: int, step: Callable[[int, int, str], None], alive: Callable[[], bool]) -> Optional[list]:
+    """Обход офисов: step показывает прогресс, alive — нужен ли ещё результат. None — результат уже никому не нужен."""
+    offices = nearest(cid, km)
+    found = []
+    for i, (centro, dist) in enumerate(offices):
+        if not alive():
+            return None  # человек ушёл — не тратим запросы к DGT
+        step(i, len(offices), views.city(centro))
+        code = pick_code(cat, office_areas(centro))
+        found.append((centro, code, result_for(centro, code) if code else [], dist))
+    found.sort(key=sort_key)
+    return found
+
+
+def start(chat: int, mid: int, cid: str, cat: str, km: int, token: Optional[int] = None) -> Optional[str]:
+    """Радар в чате. Возвращает текст подсказки, если запустить нельзя."""
+    hint = guard(chat, km)
+    if hint:
+        return hint
+    _begin(chat, cid, cat, km)
+    threading.Thread(target=run, args=(chat, mid, cid, cat, km, token), daemon=True).start()
     return None
 
 
 def run(chat: int, mid: int, cid: str, cat: str, km: int, token: Optional[int] = None) -> None:
+    alive = lambda: tg.same_screen(chat, token)  # noqa: E731
+    step = lambda i, total, name: tg.show(chat, *views.radar_progress(chat, cid, cat, km, i, total, name), mid=mid)  # noqa: E731
     try:
-        offices = nearest(cid, km)
-        found = []
-        for i, (centro, dist) in enumerate(offices):
-            if not tg.same_screen(chat, token):
-                return  # человек ушёл с экрана — не тратим запросы к DGT
-            tg.show(chat, *views.radar_progress(chat, cid, cat, km, i, len(offices), views.city(centro)), mid=mid)
-            code = pick_code(cat, office_areas(centro))
-            found.append((centro, code, result_for(centro, code) if code else [], dist))
-        found.sort(key=sort_key)
-        if tg.same_screen(chat, token):
+        found = scan(cid, cat, km, step, alive)
+        if found is not None and alive():
             tg.show(chat, *views.radar_results(chat, cid, cat, km, found), mid=mid)
     except Exception:
         log.exception("радар упал")
         lang = views.lang_of(chat)
-        tg.show(chat, views.tx(lang, "😕 Радар не смог закончить поиск, попробуй позже.",
-                               "😕 Радар не зміг завершити пошук, спробуй пізніше."),
-                tg.ikb([[views.home_btn(lang)]]), mid=mid)
+        tg.show(chat, views.radar_failed(lang), tg.ikb([[views.home_btn(lang)]]), mid=mid)
     finally:
+        busy.discard(chat)
+
+
+def start_app(chat: int, cid: str, cat: str, km: int) -> Optional[str]:
+    """Радар в мини-приложении: без сообщений в чате, ход смотрим через API."""
+    hint = guard(chat, km)
+    if hint:
+        return hint
+    _begin(chat, cid, cat, km)
+    scans[chat] = {"cat": cat, "km": km, "done": 0, "total": 0, "current": "", "found": None, "failed": False,
+                   "over": False, "seen": time.time()}
+    threading.Thread(target=run_app, args=(chat, cid), daemon=True).start()
+    return None
+
+
+def run_app(chat: int, cid: str) -> None:
+    job = scans[chat]
+    try:
+        job["found"] = scan(cid, job["cat"], job["km"], lambda i, total, name: job.update(done=i, total=total, current=name),
+                            lambda: time.time() - job["seen"] < APP_IDLE)
+        job["done"] = job["total"]
+    except Exception:
+        log.exception("радар упал")
+        job["failed"] = True
+    finally:
+        job["over"] = True
         busy.discard(chat)

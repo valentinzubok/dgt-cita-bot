@@ -6,7 +6,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, datetime
 from typing import Dict, Optional, Tuple
 
 import checker
@@ -70,17 +70,30 @@ def add_subscription(chat: int, cid: str, area: str) -> Tuple[str, Optional[dict
 
 def after_subscribed(chat: int) -> None:
     rewards.complete_builtin(chat, "b:sub")
+    after_task(chat)
+
+
+def after_task(chat: int) -> None:
+    """Выполненное задание могло закрыть условия приглашения: подписка на канал считается последней."""
     inviter = rewards.try_activate_friend(chat)
     if inviter:
         notify_inviter(inviter)
 
 
+def set_ads(chat: int, on: bool) -> None:
+    store.set_chat(chat, ads_ok=int(on))
+    if on:
+        rewards.complete_builtin(chat, "b:ads")
+
+
 def notify_inviter(inviter: int) -> None:
     lang = views.lang_of(inviter)
     tg.send(inviter, views.tx(lang, "🎉 Твой друг выполнил условия! Забери награду в «🎁 Бонусах».",
-                              "🎉 Твій друг виконав умови! Забери нагороду в «🎁 Бонусах»."),
-            tg.ikb([[tg.btn(views.tx(lang, "🎁 Бонусы", "🎁 Бонуси"), "bn", "success"),
-                     tg.btn(views.tx(lang, "✖️ Скрыть", "✖️ Сховати"), "hide")]]))
+                              "🎉 Твій друг виконав умови! Забери нагороду в «🎁 Бонусах».",
+                                    "🎉 ¡Tu amigo ha cumplido las condiciones! Recoge el premio en «🎁 Bonos».",
+                                    "🎉 Your friend met the conditions! Collect your reward in “🎁 Bonuses”."),
+            tg.ikb([[tg.btn(views.tx(lang, "🎁 Бонусы", "🎁 Бонуси", "🎁 Bonos", "🎁 Bonuses"), "bn", "success"),
+                     tg.btn(views.tx(lang, "✖️ Скрыть", "✖️ Сховати", "✖️ Ocultar", "✖️ Hide"), "hide")]]))
 
 
 def report_signal(chat: int, province: str, doc: str) -> Tuple[str, int]:
@@ -109,6 +122,18 @@ def set_paused(sub: dict, paused: bool) -> str:
         return "limit"
     store.update_sub(sub["id"], paused=1 if paused else 0)
     return "ok"
+
+
+def book(sub: dict, iso: str, hhmm: Optional[str]) -> None:
+    """Запись на визит: подписка встаёт на паузу, напоминания считаются от этой даты."""
+    chat, now, day = sub["chat"], datetime.now(config.TZ), date.fromisoformat(iso)
+    bits = 3 if day <= now.date() else 1 if (day - now.date()).days == 1 and now.hour >= 19 else 0
+    tg.delete(chat, sub.get("alert_msg"))
+    store.update_sub(sub["id"], booked_date=iso, booked_time=hhmm, reminded=bits, paused=1, alert_msg=None)
+    store.bump("bookings")
+    store.bump_chat(chat, "bookings")
+    rewards.complete_builtin(chat, "b:book")
+    checker.event(f"✅ Записался: {store.get_chat(chat).get('name') or chat} — {views.plain_title(sub)} {iso}", "user")
 
 
 def unbook(sub: dict) -> bool:

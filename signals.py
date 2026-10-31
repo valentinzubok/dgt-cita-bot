@@ -29,14 +29,14 @@ PROVINCES = {
     "50": "Zaragoza", "51": "Ceuta", "52": "Melilla",
 }
 DOCS = {
-    "ukr": ("🇺🇦", "TIE для украинцев", "TIE для українців"),
-    "tie": ("🖐", "TIE: отпечатки", "TIE: відбитки"),
-    "rec": ("📥", "Получение TIE", "Отримання TIE"),
-    "nie": ("🔢", "NIE и сертификаты", "NIE і сертифікати"),
-    "asy": ("🛡", "Убежище", "Притулок"),
-    "ext": ("📄", "Другое в Extranjería", "Інше в Extranjería"),
-    "pas": ("🛂", "Паспорт Украины", "Паспорт України"),
-    "con": ("🏛", "Консульство Украины", "Консульство України"),
+    "ukr": ("🇺🇦", "TIE для украинцев", "TIE для українців", "TIE para ucranianos", "TIE for Ukrainians"),
+    "tie": ("🖐", "TIE: отпечатки", "TIE: відбитки", "TIE: huellas", "TIE: fingerprints"),
+    "rec": ("📥", "Получение TIE", "Отримання TIE", "Recogida de TIE", "TIE collection"),
+    "nie": ("🔢", "NIE и сертификаты", "NIE і сертифікати", "NIE y certificados", "NIE and certificates"),
+    "asy": ("🛡", "Убежище", "Притулок", "Asilo", "Asylum"),
+    "ext": ("📄", "Другое в Extranjería", "Інше в Extranjería", "Otros en Extranjería", "Other at Extranjería"),
+    "pas": ("🛂", "Паспорт Украины", "Паспорт України", "Pasaporte de Ucrania", "Ukrainian passport"),
+    "con": ("🏛", "Консульство Украины", "Консульство України", "Consulado de Ucrania", "Ukrainian consulate"),
 }
 ICP_DOCS = ("ukr", "tie", "rec", "nie", "asy", "ext")  # записываются на сайте Extranjería
 

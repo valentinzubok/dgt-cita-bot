@@ -258,7 +258,9 @@ def process(cid: str, area: str, results: Optional[list], err, cards: Dict[int, 
             if watching:
                 lang = views.lang_of(chat)
                 _show_card(chat, sub, cards[chat], views.tx(lang, "⚠️ <i>Сайт DGT не ответил — попробую позже.</i>",
-                                                            "⚠️ <i>Сайт DGT не відповів — спробую пізніше.</i>"))
+                                                            "⚠️ <i>Сайт DGT не відповів — спробую пізніше.</i>",
+                                                                  "⚠️ <i>La web de la DGT no ha respondido; volveré a intentarlo más tarde.</i>",
+                                                                  "⚠️ <i>The DGT website didn't respond; I'll try again later.</i>"))
             continue
 
         prev_days = {iso for iso, _ in views.all_days(sub["last"], sub["max_days"])}

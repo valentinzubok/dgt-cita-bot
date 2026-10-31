@@ -23,6 +23,7 @@ def _load_env() -> None:
 _load_env()
 
 BRAND = "OkSita"
+LANGS = ("uk", "ru", "es", "en")
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "oksitabot").lstrip("@")
 TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
 API = f"https://api.telegram.org/bot{TOKEN}/"

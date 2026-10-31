@@ -34,6 +34,8 @@ SEGMENTS = {
     "all": "👥 Всем",
     "ru": "🇷🇺 Русский язык",
     "uk": "🇺🇦 Украинский язык",
+    "es": "🇪🇸 Испанский язык",
+    "en": "🇬🇧 Английский язык",
     "subs": "📋 С подписками",
     "nosubs": "💤 Без подписок",
     "free": "🆓 Без Premium",
@@ -139,7 +141,7 @@ def analytics() -> Tuple[str, dict]:
     booked = sum(1 for c in chats if (c.get("bookings") or 0) > 0)
     paid = len({p["chat"] for p in store.q("SELECT DISTINCT chat FROM payments WHERE refunded = 0")})
     pct = lambda n: f"{round(n / len(chats) * 100)}%" if chats else "—"  # noqa: E731
-    uk = sum(1 for c in chats if c.get("lang") == "uk")
+    by_lang = {code: sum(1 for c in chats if c.get("lang") == code) for code in config.LANGS}
 
     sources: Dict[str, int] = {}
     for c in chats:
@@ -159,7 +161,7 @@ def analytics() -> Tuple[str, dict]:
         f"🔔 Получили уведомление: {alerted} · {pct(alerted)}\n"
         f"✅ Записались: <b>{booked}</b> · {pct(booked)}\n"
         f"💰 Заплатили: <b>{paid}</b> · {pct(paid)}</blockquote>\n"
-        f"🌐 Языки: 🇺🇦 {uk} · 🇷🇺 {with_lang - uk} · не выбран {len(chats) - with_lang}\n\n"
+        f"🌐 Языки: 🇺🇦 {by_lang['uk']} · 🇷🇺 {by_lang['ru']} · 🇪🇸 {by_lang['es']} · 🇬🇧 {by_lang['en']} · не выбран {len(chats) - with_lang}\n\n"
         "🏆 <b>Топ офисов</b>\n<blockquote>" + "\n".join(top_lines) + "</blockquote>\n"
         "🔗 <b>Откуда пришли</b> (t.me/" + config.BOT_USERNAME + "?start=метка)\n<blockquote>" + "\n".join(src_lines) + "</blockquote>\n"
         "<i>нов — новые, подп — подписки, увед — уведомления, зап — записались, опл — оплаты.</i>"
@@ -441,7 +443,7 @@ def task_card(tid: int, note: str = "") -> Tuple[str, dict]:
         return tasks_view()
     required = int(store.setting("ref_task") or 0) == tid
     kind = "канал или группа" if t["kind"] == "channel" else "ссылка"
-    text = (f"📝 <b>{esc(t['title_ru'])}</b>\n🇺🇦 {esc(t['title_uk'])}\n\n<blockquote>Тип: {kind}\n"
+    text = (f"📝 <b>{esc(t['title_ru'])}</b>\n🇺🇦 {esc(t['title_uk'])}\n🇪🇸 {esc(t.get('title_es') or '—')}\n🇬🇧 {esc(t.get('title_en') or '—')}\n\n<blockquote>Тип: {kind}\n"
             f"Цель: <code>{esc(t['target'])}</code>\nНаграда: {days_text(t['hours'])}\n"
             f"Выполнили: {store.task_count('t:' + str(tid))}\n{'✅ Включено' if t['active'] else '⏸ Выключено'}</blockquote>"
             + (f"\n\n{note}" if note else ""))
@@ -529,7 +531,7 @@ def recipients(segment: str = "all") -> List[int]:
         chat = c["chat"]
         if c.get("role") in ("banned", "pending"):
             continue
-        if (segment in ("ru", "uk") and (c.get("lang") or "ru") != segment) or \
+        if (segment in config.LANGS and (c.get("lang") or "ru") != segment) or \
                 (segment == "subs" and chat not in with_subs) or (segment == "nosubs" and chat in with_subs) or \
                 (segment == "paid" and not premium.is_premium(chat)) or (segment == "free" and premium.is_premium(chat)):
             continue
@@ -672,7 +674,9 @@ def handle_input(msg: dict) -> bool:
         hide = ikb([[btn("✖️", "hide")]])
         lang = views.lang_of(target)
         if text:
-            sent = tg.send(target, views.tx(lang, "📩 <b>Сообщение от администратора</b>", "📩 <b>Повідомлення від адміністратора</b>")
+            sent = tg.send(target, views.tx(lang, "📩 <b>Сообщение от администратора</b>", "📩 <b>Повідомлення від адміністратора</b>",
+                                                  "📩 <b>Mensaje del administrador</b>",
+                                                  "📩 <b>Message from the administrator</b>")
                            + f"\n\n{esc(text)}", hide) is not None
         else:
             data = tg.call("copyMessage", chat_id=target, from_chat_id=chat, message_id=msg["message_id"], reply_markup=hide) or {}
@@ -705,12 +709,13 @@ def handle_input(msg: dict) -> bool:
             tg.show(chat, f"😕 {error}", ikb([[btn("✖️ Отмена", "ad:ts")]]), mid=screen)
             return True
         p.update(kind="task_title", target=target, link=link)
-        tg.show(chat, "📝 Название задания одной строкой: <code>Русский | Українською</code>\n"
-                      "Например: <code>Подпишись на канал | Підпишись на канал</code>",
+        tg.show(chat, "📝 Название задания одной строкой: <code>Русский | Українською | Español | English</code>\n"
+                      "Например: <code>Подпишись на канал | Підпишись на канал | Suscríbete al canal | Join the channel</code>\n"
+                      "<i>Если языка нет, покажем английский или русский.</i>",
                 ikb([[btn("✖️ Отмена", "ad:ts")]]), mid=screen)
     elif kind == "task_title":
-        ru, _, uk = text.partition("|")
-        p.update(kind="task_hours", ru=ru.strip()[:60], uk=(uk or ru).strip()[:60])
+        ru, uk, es, en = ([part.strip()[:60] for part in text.split("|")] + ["", "", ""])[:4]
+        p.update(kind="task_hours", ru=ru, uk=uk or ru, es=es, en=en)
         tg.show(chat, "🎁 Какая награда за задание?", ikb([[btn(days_text(h), f"ad:th:{h}") for h in (6, 12, 24)],
                                                            [btn(days_text(h), f"ad:th:{h}") for h in (48, 72)],
                                                            [btn("✖️ Отмена", "ad:ts")]]), mid=screen)
@@ -870,7 +875,7 @@ def on_callback(chat: int, mid: int, data: str) -> Optional[str]:
     elif kind == "th" and rest.isdigit():
         p = pending.pop(chat, None)
         if p and p["kind"] == "task_hours":
-            task = store.add_task(p["task_kind"], p["ru"], p["uk"], p["target"], p["link"], int(rest))
+            task = store.add_task(p["task_kind"], p["ru"], p["uk"], p["target"], p["link"], int(rest), p["es"], p["en"])
             checker.event(f"📝 Новое задание: {p['ru']}")
             tg.show(chat, *task_card(task["id"], "✅ Задание создано"), mid=mid)
     elif kind == "ti" and rest.isdigit():
@@ -1010,7 +1015,9 @@ def user_action(chat: int, mid: int, kind: str, target: int) -> Optional[str]:
         if approved:
             tg.show(target, *views.dashboard(target, c.get("name") or "", None,
                                              views.tx(lang, "✅ <b>Доступ открыт!</b> Добро пожаловать.",
-                                                      "✅ <b>Доступ відкрито!</b> Ласкаво просимо.")))
+                                                      "✅ <b>Доступ відкрито!</b> Ласкаво просимо.",
+                                                            "✅ <b>¡Acceso concedido!</b> Bienvenido.",
+                                                            "✅ <b>Access granted!</b> Welcome.")))
         else:
             tg.show(target, *views.banned_view(lang))
     tg.show(chat, *user_card(target, chat), mid=mid)
