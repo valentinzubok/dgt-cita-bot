@@ -993,7 +993,11 @@ def booked_card(sub: dict, note: str = "") -> Tuple[str, dict]:
         lines.append(f"\n{note}")
     share = url(tx(lang, "🎁 Рассказать другу", "🎁 Розповісти другові", "🎁 Contárselo a un amigo", "🎁 Tell a friend"),
                 rewards.share_link(sub["chat"], invite_text(lang)))
-    rows = [[share], [url(tx(lang, "📋 Требования на сайте DGT", "📋 Вимоги на сайті DGT",
+    rows = [[share]]
+    if store.setting("channel_proof") and store.setting("channel") and not store.task_is_done(f"proof:{sid}", sub["chat"]):
+        rows.append([btn(tx(lang, "📣 Рассказать в канале — анонимно", "📣 Розповісти в каналі — анонімно",
+                                  "📣 Contarlo en el canal (anónimo)", "📣 Share in the channel (anonymous)"), f"pf:{sid}")])
+    rows += [[url(tx(lang, "📋 Требования на сайте DGT", "📋 Вимоги на сайті DGT",
                           "📋 Requisitos en la web de la DGT",
                           "📋 Requirements on the DGT website"), DGT_SEDE)],
             [btn(tx(lang, "↩️ Запись отменилась — искать снова", "↩️ Запис скасовано — шукати знову",

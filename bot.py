@@ -41,7 +41,7 @@ from views import tx
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("bot")
 
-SECTIONS = ("trial", "post", "partner", "stats", "tie")  # разделы с прямыми ссылками ?start=… и командами
+SECTIONS = ("trial", "post", "partner", "stats", "tie", "radar", "premium", "bonus", "docs")  # разделы с прямыми ссылками ?start=… и командами
 opens: Dict[int, str] = {}  # раздел из ссылки: откроется после выбора языка
 LEGACY_BUTTONS = {"➕ Добавить офис": "/add", "📋 Мои подписки": "/list", "🔄 Проверить сейчас": "/check",
                   "⚙️ Настройки": "/settings", "❓ Помощь": "/help"}  # кнопки под полем ввода из первой версии
@@ -248,10 +248,10 @@ def handle_start_arg(chat: int, arg: str, is_new: bool) -> None:
     """Пригласительная ссылка (r_…), промо-ссылка (promo_…) или метка рекламного источника."""
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,60}", arg):
         return
-    if arg in SECTIONS:
-        opens[chat] = arg
+    if arg.split("-", 1)[0] in SECTIONS:  # раздел и, после дефиса, метка площадки: trial-bcn
+        opens[chat] = arg.split("-", 1)[0]
         if is_new:
-            store.set_chat(chat, source=arg)
+            store.set_chat(chat, source=arg[:40])
     elif arg.startswith("promo_"):
         status, hours = rewards.apply_promo(chat, arg[6:])
         notes[chat] = ("promo", status, hours)
@@ -278,6 +278,15 @@ def open_section(chat: int, section: str, mid: Optional[int] = None) -> None:
         tg.show(chat, *views.stats_view(chat), mid=mid)
     elif section == "tie":
         tg.show(chat, *views.tie_guide(chat), mid=mid, banner=views.banner("docs"))
+    elif section == "radar":
+        mode[chat] = "radar"
+        tg.show(chat, *views.radar_start(chat), mid=mid, banner=views.banner("radar"))
+    elif section == "premium":
+        tg.show(chat, *views.premium_view(chat), mid=mid, banner=views.banner("premium"))
+    elif section == "bonus":
+        tg.show(chat, *views.bonus_view(chat), mid=mid, banner=views.banner("bonus"))
+    elif section == "docs":
+        tg.show(chat, *views.docs_view(chat), mid=mid, banner=views.banner("docs"))
 
 
 def consume_note(chat: int) -> str:
@@ -358,21 +367,12 @@ def on_message(msg: dict) -> None:
     elif cmd in ("/add", "/centros"):
         mode.pop(chat, None)
         search(chat, arg, token) if arg.strip() else tg.show(chat, *views.offices(chat, 0))
-    elif cmd == "/radar":
-        mode[chat] = "radar"
-        tg.show(chat, *views.radar_start(chat), banner=views.banner("radar"))
     elif cmd == "/list":
         tg.show(chat, *views.subs_list(chat))
     elif cmd == "/check":
         note = check_all(chat, None, token)
         if note:
             home(chat, note=note)
-    elif cmd == "/premium":
-        tg.show(chat, *views.premium_view(chat), banner=views.banner("premium"))
-    elif cmd == "/bonus":
-        tg.show(chat, *views.bonus_view(chat), banner=views.banner("bonus"))
-    elif cmd == "/docs":
-        tg.show(chat, *views.docs_view(chat), banner=views.banner("docs"))
     elif cmd == "/promo":
         if arg.strip():
             status, hours = rewards.apply_promo(chat, arg.strip())
@@ -684,7 +684,7 @@ def route_callback(cb: dict, chat: int, mid: int, data: str) -> Tuple[Optional[s
         home(chat, mid, tx(lang, "🗑 Все подписки удалены.", "🗑 Усі підписки видалено.",
                                  "🗑 Se han quitado todas las oficinas.",
                                  "🗑 All offices removed."))
-    elif kind in ("s", "r", "h", "f", "fs", "z", "x", "xx", "k", "d", "rs", "bk", "bd", "bt", "bo", "ub"):
+    elif kind in ("s", "r", "h", "f", "fs", "z", "x", "xx", "k", "d", "rs", "bk", "bd", "bt", "bo", "ub", "pf"):
         return sub_action(chat, mid, kind, rest, lang, token)
     elif kind in ("dc", "dp", "dt", "dd", "dr", "dx", "dv"):
         return docs_action(chat, mid, kind, rest, lang)
@@ -811,6 +811,21 @@ def sub_action(chat: int, mid: int, kind: str, rest: str, lang: str, token: int)
     elif kind == "bo":
         waiting[chat] = {"kind": "book", "sid": sub["id"], "screen": mid}
         tg.show(chat, *views.booking_prompt(sub), mid=mid)
+    elif kind == "pf" and sub.get("booked_date"):
+        if store.task_is_done(f"proof:{sub['id']}", chat):
+            return tx(lang, "Уже в канале 🙌", "Вже в каналі 🙌", "Ya está en el canal 🙌", "Already in the channel 🙌"), False
+        if not channel.proof_allowed():
+            return tx(lang, "Сегодня в канале уже много таких постов. Попробуй завтра 🙏",
+                      "Сьогодні в каналі вже багато таких постів. Спробуй завтра 🙏",
+                      "Hoy ya hay muchas publicaciones así. Prueba mañana 🙏",
+                      "There are already many such posts today. Try tomorrow 🙏"), True
+        store.claim_task(f"proof:{sub['id']}", chat)
+        channel.share_booking(sub)
+        tg.show(chat, *views.card(sub), mid=mid)
+        return tx(lang, "🎉 Спасибо! В канале будут только город и вид записи, без имени.",
+                  "🎉 Дякую! У каналі будуть лише місто і вид запису, без імені.",
+                  "🎉 ¡Gracias! En el canal solo saldrán la ciudad y el trámite, sin tu nombre.",
+                  "🎉 Thanks! The channel will only show the city and the trámite, no name."), True
     elif kind == "ub":
         tg.delete(chat, sub.get("alert_msg"))
         note = (tx(lang, "▶️ <i>Снова ищу свободные даты.</i>", "▶️ <i>Знову шукаю вільні дати.</i>",

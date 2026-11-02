@@ -154,6 +154,7 @@ def check_minutes(paid: bool) -> int:
 
 
 views.check_minutes = check_minutes
+channel.notify = lambda text: notify_admins(text, silent=False)
 
 
 def _intervals(chats: List[int]) -> int:

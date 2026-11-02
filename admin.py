@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import logging
 import math
 import re
@@ -17,6 +18,7 @@ import channel
 import checker
 import config
 import dgt
+import posts
 import premium
 import rewards
 import store
@@ -141,17 +143,22 @@ def analytics() -> Tuple[str, dict]:
     chart = "\n".join(f"{d[8:10]}.{d[5:7]} {bar(v[0], top)} {v[0]}" for d, v in rows)
 
     with_lang = sum(1 for c in chats if c.get("lang"))
-    with_subs = len({s["chat"] for s in subs})
+    subscribed = {s["chat"] for s in subs}
+    with_subs = len(subscribed)
     alerted = sum(1 for c in chats if (c.get("alerts") or 0) > 0)
     booked = sum(1 for c in chats if (c.get("bookings") or 0) > 0)
-    paid = len({p["chat"] for p in store.q("SELECT DISTINCT chat FROM payments WHERE refunded = 0")})
+    payers = {p["chat"] for p in store.q("SELECT DISTINCT chat FROM payments WHERE refunded = 0")}
+    paid = len(payers)
     pct = lambda n: f"{round(n / len(chats) * 100)}%" if chats else "—"  # noqa: E731
     by_lang = {code: sum(1 for c in chats if c.get("lang") == code) for code in config.LANGS}
 
-    sources: Dict[str, int] = {}
+    sources: Dict[str, List[int]] = {}  # метка → пришли, подписались, заплатили
     for c in chats:
-        sources[c.get("source") or "без метки"] = sources.get(c.get("source") or "без метки", 0) + 1
-    src_lines = [f"{esc(k)} — {v}" for k, v in sorted(sources.items(), key=lambda kv: -kv[1])[:8]]
+        row = sources.setdefault(c.get("source") or "без метки", [0, 0, 0])
+        row[0] += 1
+        row[1] += c["chat"] in subscribed
+        row[2] += c["chat"] in payers
+    src_lines = [f"{esc(k)} — 👥 {n} · 📋 {s} · 💰 {p}" for k, (n, s, p) in sorted(sources.items(), key=lambda kv: -kv[1][0])[:10]]
     popular = sorted(store.popularity().items(), key=lambda kv: -kv[1])[:5]
     top_lines = [f"{i + 1}. {esc(views.city(cid))} · {esc(views.area_label(area))} — 👥 {n}"
                  for i, ((cid, area), n) in enumerate(popular)] or ["пока пусто"]
@@ -169,7 +176,8 @@ def analytics() -> Tuple[str, dict]:
         f"🌐 Языки: 🇺🇦 {by_lang['uk']} · 🇷🇺 {by_lang['ru']} · 🇪🇸 {by_lang['es']} · 🇬🇧 {by_lang['en']} · не выбран {len(chats) - with_lang}\n\n"
         "🏆 <b>Топ офисов</b>\n<blockquote>" + "\n".join(top_lines) + "</blockquote>\n"
         "🔗 <b>Откуда пришли</b> (t.me/" + config.BOT_USERNAME + "?start=метка)\n<blockquote>" + "\n".join(src_lines) + "</blockquote>\n"
-        "<i>нов — новые, подп — подписки, увед — уведомления, зап — записались, опл — оплаты.</i>"
+        "<i>нов — новые, подп — подписки, увед — уведомления, зап — записались, опл — оплаты. "
+        "У меток: 👥 пришли · 📋 подписались · 💰 заплатили.</i>"
     )
     return text, ikb([[btn("🔄 Обновить", "ad:an"), BACK]])
 
@@ -443,12 +451,88 @@ def channel_admin(note: str = "") -> Tuple[str, dict]:
             f"Сегодня постов о датах: <b>{store.metric(store.today_key(), 'channel_posts')}</b></blockquote>\n"
             "<i>В боте даты приходят сразу, в канале с задержкой: это ведёт людей в бота.</i>"
             + (f"\n\n{note}" if note else ""))
+    plan, drafts = len(channel.planned()), len(store.queued(("draft",)))
+    on = lambda key: "✅" if store.setting(key) else "⬜️"  # noqa: E731
     return text, ikb([
         [btn("Задержка, мин", "noop")],
         [btn(("✅ " if n == delay else "") + (str(n) if n else "Выкл"), f"ad:cm:{n}") for n in (0, 15, 30, 60)],
+        [btn(f"🗓 Отложенные посты · {plan} в плане · {drafts} черновиков", "ad:kq", "primary")],
+        [btn(f"{on('channel_digest')} Итоги недели (вс 19:00)", "ad:kx"), btn(f"{on('channel_proof')} «Ещё одна запись»", "ad:ky")],
         [btn("📌 Опубликовать и закрепить пост о канале", "ad:cw")],
         [url("📢 Открыть канал", channel.link()), BACK],
     ])
+
+
+def when(ts: int) -> str:
+    return datetime.fromtimestamp(ts, config.TZ).strftime("%d.%m %H:%M")
+
+
+def queue_view(note: str = "") -> Tuple[str, dict]:
+    items = store.queued(("planned", "draft", "failed"))
+    fresh = len([t for t in posts.TEMPLATES if t["tag"] not in store.queued_tags()])
+    mark = lambda r: f"🕒 {when(r['at'])}" if r["status"] == "planned" else "⚠️" if r["status"] == "failed" else "📝"  # noqa: E731
+    lines = [f"{mark(r)} · {esc(channel.preview_line(r))}" for r in items]
+    text = ("🗓 <b>Отложенные посты</b>\n\n"
+            + ("<blockquote>" + "\n".join(lines) + "</blockquote>\n" if lines else "Пока пусто.\n\n")
+            + "<i>Пост выходит в канал в выбранное время, между постами не меньше 10 минут. "
+              "Черновики никуда не уходят, пока ты не выберешь время.</i>"
+            + (f"\n\n{note}" if note else ""))
+    rows = [[btn(f"{mark(r)} {channel.preview_line(r)[:34]}", f"ad:ki:{r['id']}")] for r in items[:12]]
+    rows.append([btn("➕ Новый пост", "ad:kn", "success")])
+    if fresh:
+        rows.append([btn(f"📥 Готовые посты с картинками · {fresh}", "ad:kt")])
+    if any(r["status"] == "draft" for r in items):
+        rows.append([btn("🗓 Расставить черновики: по одному в день, 19:00", "ad:ka")])
+    rows.append([btn("⬅️ Канал", "ad:cl"), BACK])
+    return text, ikb(rows)
+
+
+def queued_card(qid: int, note: str = "") -> Tuple[str, dict]:
+    row = store.get_queued(qid)
+    if not row:
+        return queue_view("Этого поста уже нет.")
+    state = {"draft": "📝 Черновик — никуда не уйдёт, пока не выберешь время",
+             "planned": f"🕒 Выйдет <b>{when(row['at'])}</b>",
+             "sent": f"✅ Вышел {when(row['at'])}" if row.get("at") else "✅ Вышел",
+             "failed": "⚠️ Не вышел: проверь права бота в канале"}.get(row["status"], row["status"])
+    button = f"🔘 Кнопка: {esc(row['button'] or '')} → {esc(row['url'])}" if row.get("url") else "🔘 Без кнопки"
+    text = (f"🗓 <b>Пост №{qid}</b>\n\n{state}\n{esc(channel.preview_line(row))}\n{button}"
+            + (f"\n\n{note}" if note else ""))
+    rows = [[btn("👁 Показать мне", f"ad:kp:{qid}")]]
+    if row["status"] != "sent":
+        slots = [btn(label, f"ad:ks:{qid}:{ts}") for label, ts in channel.next_slots()]
+        rows += [slots[i:i + 3] for i in range(0, len(slots), 3)]
+        rows.append([btn("✏️ Своё время", f"ad:kw:{qid}"), btn("🚀 Сейчас", f"ad:kg:{qid}")])
+        if row["status"] == "planned":
+            rows.append([btn("⏸ Снять с плана", f"ad:ku:{qid}")])
+    rows.append([btn("🗑 Удалить", f"ad:kd:{qid}"), btn("⬅️ Отложенные", "ad:kq")])
+    return text, ikb(rows)
+
+
+QTIME_RE = re.compile(r"(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?\s+(\d{1,2})[:.](\d{2})")
+
+
+def parse_when(text: str, now: Optional[datetime] = None) -> Optional[int]:
+    """«05.11 19:00» → unix по Мадриду. Только будущее время, не дальше года."""
+    now = now or datetime.now(config.TZ)
+    m = QTIME_RE.search(text)
+    if not m:
+        return None
+    d, mo, y, hh, mm = m.groups()
+    try:
+        year = int(y) + (2000 if len(y) == 2 else 0) if y else now.year
+        at = datetime(year, int(mo), int(d), int(hh), int(mm), tzinfo=config.TZ)
+        if not y and at < now - timedelta(days=1):
+            at = at.replace(year=year + 1)
+    except ValueError:
+        return None
+    return int(at.timestamp()) if now < at < now + timedelta(days=366) else None
+
+
+def add_queued_post(chat: int, screen: int, p: dict, button: Optional[str], link: Optional[str]) -> None:
+    pending.pop(chat, None)
+    row = store.add_queued(p["payload"], button, link)
+    tg.show(chat, *queued_card(row["id"], "✅ Черновик готов. Выбери время или опубликуй сейчас."), mid=screen)
 
 
 # ---------- промокоды ----------
@@ -809,6 +893,32 @@ def handle_input(msg: dict) -> bool:
         tg.show(chat, "🎁 Какая награда за задание?", ikb([[btn(days_text(h), f"ad:th:{h}") for h in (6, 12, 24)],
                                                            [btn(days_text(h), f"ad:th:{h}") for h in (48, 72)],
                                                            [btn("✖️ Отмена", "ad:ts")]]), mid=screen)
+    elif kind == "queue_content":
+        payload = ads.payload_from(msg)
+        if not payload:
+            tg.show(chat, "Пришли текст, фото, видео или GIF.", ikb([[btn("✖️ Отмена", "ad:kq")]]), mid=screen)
+            return True
+        p.update(kind="queue_button", payload=payload)
+        tg.show(chat, "🔘 Кнопка под постом одной строкой: <code>Текст | https://ссылка</code>\n"
+                      "Или кнопка бота — откроет @" + config.BOT_USERNAME + ".",
+                ikb([[btn("⚡️ Кнопка бота", "ad:kb:bot", "primary"), btn("Без кнопки", "ad:kb:none")],
+                     [btn("✖️ Отмена", "ad:kq")]]), mid=screen)
+    elif kind == "queue_button":
+        label, _, link = text.partition("|")
+        if not URL_RE.match(link.strip()):
+            tg.show(chat, "Нужно так: <code>Текст | https://ссылка</code>",
+                    ikb([[btn("⚡️ Кнопка бота", "ad:kb:bot"), btn("Без кнопки", "ad:kb:none")], [btn("✖️ Отмена", "ad:kq")]]), mid=screen)
+            return True
+        add_queued_post(chat, screen, p, label.strip()[:32] or "⚡️ OkSita", link.strip())
+    elif kind == "queue_time":
+        at = parse_when(text)
+        if not at:
+            tg.show(chat, "🕒 Нужно будущее время так: <code>05.11 19:00</code> (по Мадриду)",
+                    ikb([[btn("✖️ Отмена", f"ad:ki:{p['qid']}")]]), mid=screen)
+            return True
+        pending.pop(chat, None)
+        channel.plan(p["qid"], at)
+        tg.show(chat, *queued_card(p["qid"], f"✅ Выйдет {when(at)}"), mid=screen)
     elif kind == "ad_content":
         payload = ads.payload_from(msg)
         if not payload:
@@ -850,7 +960,7 @@ def make_promo(chat: int, mid: int, p: dict, code: Optional[str]) -> None:
 def on_callback(chat: int, mid: int, data: str) -> Optional[str]:
     """data — всё после «ad:». Возвращает текст всплывающей подсказки или None."""
     kind, _, rest = data.partition(":")
-    keep = kind in ("bs", "th", "cb", "cg", "pc", "bx")
+    keep = kind in ("bs", "th", "cb", "cg", "pc", "bx", "kb")
     p = pending.get(chat)
     if p and not keep:
         pending.pop(chat, None)
@@ -913,6 +1023,56 @@ def on_callback(chat: int, mid: int, data: str) -> Optional[str]:
         if int(rest) in (0, 15, 30, 60):
             store.set_setting("channel_delay", int(rest))
         tg.show(chat, *channel_admin(), mid=mid)
+    elif kind == "kq":
+        tg.show(chat, *queue_view(), mid=mid)
+    elif kind in ("kx", "ky"):
+        key = "channel_digest" if kind == "kx" else "channel_proof"
+        store.set_setting(key, 0 if store.setting(key) else 1)
+        tg.show(chat, *channel_admin(), mid=mid)
+    elif kind == "kt":
+        n = channel.add_templates()
+        tg.show(chat, *queue_view(f"📥 Добавлено черновиков: {n}. Открой любой, посмотри и выбери время."), mid=mid)
+    elif kind == "ka":
+        n = channel.plan_drafts()
+        tg.show(chat, *queue_view(f"🗓 Запланировано: {n}, по одному в день в 19:00."), mid=mid)
+    elif kind == "kn":
+        pending[chat] = {"kind": "queue_content", "screen": mid}
+        tg.show(chat, "✍️ Пришли пост для канала: текст, фото, видео или GIF с подписью. Оформление сохранится.",
+                ikb([[btn("✖️ Отмена", "ad:kq")]]), mid=mid)
+    elif kind == "kb" and p and p.get("kind") == "queue_button":
+        if rest == "bot":
+            add_queued_post(chat, mid, p, "⚡️ OkSita", channel.bot_link("ch"))
+        else:
+            add_queued_post(chat, mid, p, None, None)
+    elif kind in ("ki", "kp", "kw", "kg", "ku", "kd", "ks"):
+        qid_s, _, extra = rest.partition(":")
+        row = store.get_queued(int(qid_s)) if qid_s.isdigit() else None
+        if not row:
+            tg.show(chat, *queue_view("Этого поста уже нет."), mid=mid)
+            return None
+        qid = row["id"]
+        if kind == "ki":
+            tg.show(chat, *queued_card(qid), mid=mid)
+        elif kind == "kp":
+            ok = channel.send_payload(chat, json.loads(row["payload"]), channel.queued_kb(row))
+            return "👆 Так пост будет выглядеть в канале" if ok else "⚠️ Не получилось показать пост"
+        elif kind == "kw" and row["status"] != "sent":
+            pending[chat] = {"kind": "queue_time", "screen": mid, "qid": qid}
+            tg.show(chat, "🕒 Когда опубликовать? Например: <code>05.11 19:00</code> (по Мадриду)",
+                    ikb([[btn("✖️ Отмена", f"ad:ki:{qid}")]]), mid=mid)
+        elif kind == "ks" and extra.isdigit() and row["status"] != "sent":
+            channel.plan(qid, int(extra))
+            tg.show(chat, *queued_card(qid, f"✅ Выйдет {when(int(extra))}"), mid=mid)
+        elif kind == "kg" and row["status"] != "sent":
+            ok = channel.publish_queued(qid)
+            checker.event(f"📢 Пост №{qid} в канале" + ("" if ok else " — не вышел"), "user")
+            tg.show(chat, *queued_card(qid, "✅ Опубликовано" if ok else "⚠️ Канал не принял пост: проверь права бота"), mid=mid)
+        elif kind == "ku":
+            channel.unplan(qid)
+            tg.show(chat, *queued_card(qid, "⏸ Снято с плана, лежит в черновиках"), mid=mid)
+        elif kind == "kd":
+            channel.drop(qid)
+            tg.show(chat, *queue_view("🗑 Удалено"), mid=mid)
     elif kind == "cw":
         status = channel.pin_welcome()
         tg.show(chat, *channel_admin({"ok": "✅ Пост опубликован и закреплён", "pin": "⚠️ Пост опубликован, но закрепить не вышло",

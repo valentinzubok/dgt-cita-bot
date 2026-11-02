@@ -47,6 +47,7 @@ FILES = {"/app": "webapp/index.html", "/app/app.js": "webapp/app.js", "/app/i18n
          "/static/banner_radar.jpg": "assets/banner_radar.jpg", "/static/banner_admin.jpg": "assets/banner_admin.jpg",
          "/static/banner_docs.jpg": "assets/banner_docs.jpg", "/static/banner_board.jpg": "assets/banner_board.jpg",
          "/static/banner_trial.jpg": "assets/banner_trial.jpg"}
+FILES.update({f"/static/{f.name}": f"assets/{f.name}" for f in sorted((config.ROOT / "assets").glob("post_*.jpg"))})  # картинки постов канала
 STATES = {"🟢": "free", "🟡": "later", "🔴": "full", "⏸": "paused", "✅": "booked", "⏳": "pending",
           "⚠️": "error", "🔐": "locked", "⚪️": "none", "❔": "error"}
 LOADS = {"bajaOcupacion": "many", "mediaOcupacion": "mid", "altaOcupacion": "few"}

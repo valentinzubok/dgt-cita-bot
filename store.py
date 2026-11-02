@@ -133,6 +133,16 @@ SCHEMA = [
         message BIGINT,
         created_at BIGINT NOT NULL,
         decided_at BIGINT)""",
+    f"""CREATE TABLE IF NOT EXISTS channel_queue (
+        id {_PK},
+        payload TEXT NOT NULL,
+        button TEXT,
+        url TEXT,
+        at BIGINT NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'draft',
+        message BIGINT,
+        tag TEXT,
+        created_at BIGINT NOT NULL)""",
     """CREATE TABLE IF NOT EXISTS reward_ledger (
         key TEXT PRIMARY KEY,
         created_at BIGINT NOT NULL)""",
@@ -209,7 +219,7 @@ CHAT_FIELDS = {"name", "username", "quiet", "role", "screen", "last_seen", "lang
 INT_SETTINGS = {"interval", "interval_premium", "free_subs", "max_subs", "checks_paused", "notify_new", "maintenance",
                 "daily_report", "price_7", "price_30", "price_90", "ref_hours", "ref_cap", "ref_task", "ad_gap",
                 "free_radar_day", "trial_hours", "channel_delay", "post_job", "post_ad",
-                "discount_pct", "discount_tasks"}
+                "discount_pct", "discount_tasks", "channel_digest", "channel_proof"}
 DEFAULTS = {
     "interval": 30,                # минут между проверками офиса (бесплатно)
     "interval_premium": 5,         # минут между проверками офиса, за которым следит подписчик Premium
@@ -237,6 +247,9 @@ DEFAULTS = {
     "post_ad": 249,                # услуга или реклама в канале, звёзд
     "discount_pct": 10,            # скидка на месяц Premium за задания, %; 0 — выключена
     "discount_tasks": 2,           # сколько заданий нужно выполнить ради скидки
+    "channel_digest": 1,           # итоги недели в канале по воскресеньям
+    "channel_proof": 1,            # «ещё одна запись» в канале, если человек сам согласился
+    "last_digest": "",             # за какую неделю уже вышли итоги
     "avatar_sha": "",              # какая картинка уже стоит на аватаре бота
     "ledger_salt": "",             # ключ хешей в reward_ledger, создаётся при первом запуске
 }
@@ -1127,3 +1140,36 @@ def free_job_used(chat: int) -> bool:
 
 def post_counts() -> Dict[str, int]:
     return {r["status"]: r["n"] for r in q("SELECT status, COUNT(*) AS n FROM board GROUP BY status")}
+
+
+# ---------- отложенные посты канала ----------
+
+def add_queued(payload: dict, button: Optional[str] = None, url: Optional[str] = None, tag: Optional[str] = None) -> dict:
+    flush(3)
+    row = q1("INSERT INTO channel_queue (payload, button, url, tag, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id",
+             (json.dumps(payload, ensure_ascii=False), button, url, tag, int(time.time())))
+    return get_queued(row["id"])
+
+
+def get_queued(qid: int) -> Optional[dict]:
+    return q1("SELECT * FROM channel_queue WHERE id = ?", (qid,))
+
+
+def set_queued(qid: int, **fields) -> None:
+    fields = {k: v for k, v in fields.items() if k in ("status", "at", "message")}
+    if fields:
+        q(f"UPDATE channel_queue SET {', '.join(f'{k} = ?' for k in fields)} WHERE id = ?", (*fields.values(), qid))
+
+
+def delete_queued(qid: int) -> None:
+    q("DELETE FROM channel_queue WHERE id = ?", (qid,))
+
+
+def queued(statuses: Tuple[str, ...] = ("draft", "planned"), limit: int = 30) -> List[dict]:
+    marks = ", ".join("?" for _ in statuses)
+    return q(f"SELECT * FROM channel_queue WHERE status IN ({marks}) ORDER BY CASE WHEN at = 0 THEN 1 ELSE 0 END, at, id LIMIT ?",
+             (*statuses, limit))
+
+
+def queued_tags() -> Set[str]:
+    return {r["tag"] for r in q("SELECT tag FROM channel_queue WHERE tag IS NOT NULL")}

@@ -1,10 +1,12 @@
 """Пробный период, гарантия, объявления и канал, окна проверки, статистика: всё, что приводит новых людей и деньги."""
+import json
 import os
+import re
 import sys
 import tempfile
 import time
 import unittest
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -14,11 +16,13 @@ sys.path.insert(0, str(ROOT))
 
 import actions  # noqa: E402
 import admin  # noqa: E402
+import ads  # noqa: E402
 import board  # noqa: E402
 import bot  # noqa: E402
 import channel  # noqa: E402
 import checker  # noqa: E402
 import config  # noqa: E402
+import posts  # noqa: E402
 import premium  # noqa: E402
 import rewards  # noqa: E402
 import signals  # noqa: E402
@@ -65,6 +69,11 @@ class Base(unittest.TestCase):
         channel._queue.clear()
         channel._posted.clear()
         channel._sent.update(at=0.0, day="", count=0)
+        store.set_setting("channel_digest", 0)
+        store.set_setting("channel_proof", 1)
+        store.q("DELETE FROM channel_queue")
+        channel._planned.clear()
+        channel._plan_loaded["ok"] = False
 
     def user(self, chat, lang="ru"):
         store.touch_chat(chat, "Test", "")
@@ -598,6 +607,216 @@ class Screens(Base):
         self.assertEqual(store.setting("channel_delay"), 15)
         admin.on_callback(1, 9, "jp:post_job:49")
         self.assertEqual(store.setting("post_job"), 49)
+
+
+class Queue(Base):
+    def test_templates_are_drafts_until_planned(self):
+        self.assertEqual(channel.add_templates(), len(posts.TEMPLATES))
+        self.assertEqual(channel.add_templates(), 0, "второй раз не дублируются")
+        channel.tick({}, time.time() + 7 * 86400)
+        self.assertFalse(sent("sendPhoto"), "черновики сами не выходят")
+        for r in store.queued():
+            payload = json.loads(r["payload"])
+            name = payload["file"][len("static:"):]
+            self.assertNotRegex(payload["text"], r"\{[a-z]+\}", "все подстановки заполнены")
+            self.assertIn(f"/static/{name}", webapp.FILES)
+            self.assertTrue((ROOT / "assets" / name).exists(), name)
+            self.assertIn("start=", r["url"])
+            self.assertLess(len(re.sub("<[^>]+>", "", payload["text"])), 1024, "подпись к фото — до 1024 символов")
+            check(self, payload["text"], r["tag"])
+
+    def test_planned_post_goes_out_once_with_gap(self):
+        channel.add_templates()
+        a, b = store.queued()[:2]
+        now = time.time()
+        channel.plan(a["id"], int(now) - 5)
+        channel.plan(b["id"], int(now) - 1)
+        channel.tick({}, now)
+        photos = sent("sendPhoto")
+        self.assertEqual(len(photos), 1)
+        self.assertEqual(photos[0]["parse_mode"], "HTML")
+        self.assertTrue(photos[0]["photo"].startswith("https://example.test/static/post_"))
+        self.assertEqual(store.get_queued(a["id"])["status"], "sent")
+        channel.tick({}, now + 60)
+        self.assertEqual(len(sent("sendPhoto")), 1, "между постами пауза")
+        channel.tick({}, now + channel.GAP + 1)
+        self.assertEqual(len(sent("sendPhoto")), 2)
+        channel.tick({}, now + 3 * channel.GAP)
+        self.assertEqual(len(sent("sendPhoto")), 2, "вышедший пост не повторяется")
+
+    def test_plan_survives_restart(self):
+        channel.add_templates()
+        row = store.queued()[0]
+        channel.plan(row["id"], int(time.time()) + 3600)
+        channel._planned.clear()
+        channel._plan_loaded["ok"] = False
+        self.assertIn(row["id"], channel.planned())
+
+    def test_failed_post_tells_admins(self):
+        told, keep = [], channel.notify
+        channel.notify = told.append
+        row = store.add_queued({"type": "text", "text": "x", "html": True})
+        tg.call = lambda method, _timeout=40, **p: {"ok": False, "description": "not enough rights"}
+        try:
+            self.assertIsNone(channel.publish_queued(row["id"]))
+        finally:
+            tg.call, channel.notify = fake_call, keep
+        self.assertEqual(store.get_queued(row["id"])["status"], "failed")
+        self.assertTrue(told)
+        self.assertIn(f"ad:ki:{row['id']}", str(admin.queue_view()[1]), "не вышедший пост виден в списке")
+
+    def test_admin_post_keeps_formatting(self):
+        msg = {"chat": {"id": 1}, "message_id": 5, "text": "Привет жирный", "entities": [{"type": "bold", "offset": 7, "length": 6}]}
+        row = store.add_queued(ads.payload_from(msg), "Go", "https://t.me/x")
+        channel.publish_queued(row["id"])
+        post = sent("sendMessage")[-1]
+        self.assertEqual(post["entities"][0]["type"], "bold")
+        self.assertNotIn("parse_mode", post)
+        self.assertIn("https://t.me/x", str(post["reply_markup"]))
+
+    def test_slots_and_auto_plan(self):
+        now = datetime(2026, 11, 2, 18, 0, tzinfo=config.TZ)
+        slots = channel.next_slots(now)
+        self.assertEqual(slots[0][0], "Сегодня 19:00")
+        self.assertTrue(all(ts > now.timestamp() for _, ts in slots))
+        self.assertEqual(channel.next_slots(datetime(2026, 11, 2, 19, 30, tzinfo=config.TZ))[0][0], "Завтра 10:00")
+        channel.add_templates()
+        self.assertEqual(channel.plan_drafts(now), len(posts.TEMPLATES))
+        days = sorted(datetime.fromtimestamp(at, config.TZ) for at in channel.planned().values())
+        self.assertEqual(len({d.date() for d in days}), len(days), "по одному в день")
+        self.assertTrue(all(d.hour == 19 for d in days))
+        self.assertEqual(days[0].date(), date(2026, 11, 3))
+
+    def test_parse_when(self):
+        now = datetime(2026, 11, 2, 12, 0, tzinfo=config.TZ)
+        at = admin.parse_when("05.11 19:30", now)
+        self.assertEqual(datetime.fromtimestamp(at, config.TZ).strftime("%Y-%m-%d %H:%M"), "2026-11-05 19:30")
+        self.assertEqual(datetime.fromtimestamp(admin.parse_when("10.01 09:00", now), config.TZ).year, 2027)
+        self.assertIsNone(admin.parse_when("02.11 10:00", now), "прошлое")
+        self.assertIsNone(admin.parse_when("31.02 10:00", now))
+        self.assertIsNone(admin.parse_when("завтра", now))
+
+    def test_admin_flow(self):
+        tg.show = lambda *a, **k: 1
+        admin.on_callback(1, 9, "kt")
+        row = store.queued()[0]
+        slot = channel.next_slots()[0][1]
+        admin.on_callback(1, 9, f"ks:{row['id']}:{slot}")
+        self.assertEqual(channel.planned()[row["id"]], slot)
+        admin.on_callback(1, 9, f"ku:{row['id']}")
+        self.assertNotIn(row["id"], channel.planned())
+        self.assertEqual(admin.on_callback(1, 9, f"kp:{row['id']}"), "👆 Так пост будет выглядеть в канале")
+        self.assertEqual(sent("sendPhoto")[-1]["chat_id"], 1)
+        admin.on_callback(1, 9, f"kg:{row['id']}")
+        self.assertEqual(store.get_queued(row["id"])["status"], "sent")
+        admin.on_callback(1, 9, f"kd:{row['id']}")
+        self.assertIsNone(store.get_queued(row["id"]))
+        admin.on_callback(1, 9, "kn")
+        admin.handle_input({"chat": {"id": 1}, "message_id": 77, "text": "Новость канала"})
+        admin.on_callback(1, 9, "kb:bot")
+        mine = [r for r in store.queued() if json.loads(r["payload"]).get("text") == "Новость канала"]
+        self.assertEqual(len(mine), 1)
+        self.assertIn("start=ch", mine[0]["url"])
+        admin.on_callback(1, 9, "kx")
+        self.assertEqual(store.setting("channel_digest"), 1)
+        for screen in (admin.queue_view("заметка"), admin.queued_card(mine[0]["id"], "заметка"), admin.channel_admin()):
+            check(self, screen, "queue")
+
+
+class Digest(Base):
+    def events(self, n, now):
+        return [{"centro": "486", "area": "VEH", "opened_at": now - 3600 * i, "closed_at": now - 3600 * i + 1800} for i in range(1, n + 1)]
+
+    def test_text(self):
+        now = int(time.time())
+        self.assertIsNone(channel.digest_text(self.events(2, now), date(2026, 10, 27), date(2026, 11, 2)), "мало данных — не позоримся")
+        text = channel.digest_text(self.events(4, now), date(2026, 10, 27), date(2026, 11, 2))
+        check(self, text, "digest")
+        self.assertIn("🟢 <b>4</b>", text)
+        self.assertIn("~<b>30 min</b>", text)
+        self.assertIn("27.10 – 02.11", text)
+
+    def test_once_on_sunday_evening(self):
+        store.set_setting("channel_digest", 1)
+        store.set_setting("last_digest", "")
+        sunday = datetime(2026, 11, 8, 19, 5, tzinfo=config.TZ).timestamp()
+        keep = store.recent_events
+        store.recent_events = lambda since: self.events(5, int(sunday))
+        try:
+            channel.tick({}, sunday - 3600)
+            self.assertFalse(sent("sendMessage"), "только в 19:00")
+            channel.tick({}, sunday)
+            self.assertEqual(len(sent("sendMessage")), 1)
+            self.assertIn("start=digest", str(sent("sendMessage")[0]["reply_markup"]))
+            channel.tick({}, sunday + channel.GAP + 60)
+            self.assertEqual(len(sent("sendMessage")), 1, "раз в неделю")
+        finally:
+            store.recent_events = keep
+
+
+class Proof(Base):
+    def booked(self, chat):
+        sub, _ = store.add_sub(chat, "486", "VEH", "Vehículos")
+        store._subs[sub["id"]]["created_at"] = int(time.time()) - 3 * 86400
+        actions.book(store.get_sub(sub["id"]), "2030-01-07", None)
+        return store.get_sub(sub["id"])
+
+    def test_share_after_booking(self):
+        tg.show = lambda *a, **k: 1
+        chat = self.user(5601, "uk")
+        sub = self.booked(chat)
+        self.assertIn(f"pf:{sub['id']}", str(views.card(sub)[1]))
+        toast, alert = bot.sub_action(chat, 9, "pf", str(sub["id"]), "uk", 0)
+        self.assertIn("без імені", toast)
+        self.assertNotIn(f"pf:{sub['id']}", str(views.card(sub)[1]), "кнопка пропадает")
+        self.assertEqual(bot.sub_action(chat, 9, "pf", str(sub["id"]), "uk", 0)[0], "Вже в каналі 🙌")
+        channel.tick({}, time.time() + 1)
+        post = sent("sendMessage")[-1]
+        self.assertEqual(post["chat_id"], "@oksita_news")
+        self.assertTrue(post["disable_notification"])
+        self.assertIn("шукали 3 дн.", post["text"])
+        self.assertNotIn("Test", post["text"], "без имени")
+        check(self, post["text"], "proof")
+
+    def test_daily_cap_and_switch(self):
+        chat = self.user(5602)
+        sub = self.booked(chat)
+        keep, channel.PROOF_DAY = channel.PROOF_DAY, store.metric(store.today_key(), "channel_proofs")
+        try:
+            toast, _ = bot.sub_action(chat, 9, "pf", str(sub["id"]), "ru", 0)
+        finally:
+            channel.PROOF_DAY = keep
+        self.assertIn("завтра", toast)
+        self.assertFalse(store.task_is_done(f"proof:{sub['id']}", chat), "можно попробовать завтра")
+        store.set_setting("channel_proof", 0)
+        self.assertNotIn("pf:", str(views.card(sub)[1]))
+
+    def test_proof_text_languages(self):
+        text = channel.proof_text("486", "VEH", 5 * 3600)
+        self.assertIn("5 год.", text)
+        self.assertIn("5 ч.", text)
+        self.assertIn("1 day", channel.proof_text("486", "VEH", 86400))
+
+
+class Links(Base):
+    def test_section_with_placement_label(self):
+        store.touch_chat(5701, "T", "")
+        bot.handle_start_arg(5701, "trial-bcn", True)
+        self.assertEqual(bot.opens.pop(5701), "trial")
+        self.assertEqual(store.get_chat(5701)["source"], "trial-bcn")
+        store.touch_chat(5702, "T", "")
+        bot.handle_start_arg(5702, "espana_ucrania", True)
+        self.assertNotIn(5702, bot.opens)
+        self.assertEqual(store.get_chat(5702)["source"], "espana_ucrania")
+
+    def test_every_section_opens(self):
+        shown = []
+        tg.show = lambda chat, text, kb=None, **k: shown.append(text) or 1
+        chat = self.user(5703, "es")
+        for section in bot.SECTIONS:
+            bot.open_section(chat, section)
+        self.assertEqual(len(shown), len(bot.SECTIONS))
+        self.assertEqual(bot.mode.pop(chat, None), "radar")
 
 
 if __name__ == "__main__":

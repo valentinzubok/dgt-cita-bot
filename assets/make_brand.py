@@ -141,18 +141,24 @@ def shot(html, out, w, h, quality=86):
             im.save(out, quality=quality, optimize=True, progressive=True)
 
 
-ONLY = sys.argv[1:]
 BANNERS = {"banner": HOME, "banner_premium": PREMIUM, "banner_bonus": BONUS, "banner_radar": RADAR_P, "banner_admin": ADMIN, "banner_docs": DOCS,
            "banner_board": BOARD, "banner_trial": TRIAL}
-for name, html in BANNERS.items():
-    if not ONLY or name in ONLY:
-        shot(html, HERE / f"{name}.jpg", 1280, 640)
-if not ONLY:
-    (HERE / "logo.svg").write_text(LOGO, encoding="utf-8")
-    (HERE / "mark.svg").write_text(MARK_ONLY, encoding="utf-8")
-    avatar = f'<!doctype html><style>html,body{{margin:0}}svg{{display:block;width:640px;height:640px}}</style>{LOGO}'
-    shot(avatar, HERE / "avatar.png", 640, 640)
-    shot(avatar, HERE / "avatar.jpg", 640, 640, 92)
-    shot(HOME.replace("height:640px", "height:720px"), HERE / "cover.png", 1280, 720)  # картинка в описании бота: 640x360 в BotFather
-    Image.open(HERE / "cover.png").resize((640, 360), Image.LANCZOS).save(HERE / "cover-640x360.png", optimize=True)
-print("готово")
+
+
+def main(only):
+    for name, html in BANNERS.items():
+        if not only or name in only:
+            shot(html, HERE / f"{name}.jpg", 1280, 640)
+    if not only:
+        (HERE / "logo.svg").write_text(LOGO, encoding="utf-8")
+        (HERE / "mark.svg").write_text(MARK_ONLY, encoding="utf-8")
+        avatar = f'<!doctype html><style>html,body{{margin:0}}svg{{display:block;width:640px;height:640px}}</style>{LOGO}'
+        shot(avatar, HERE / "avatar.png", 640, 640)
+        shot(avatar, HERE / "avatar.jpg", 640, 640, 92)
+        shot(HOME.replace("height:640px", "height:720px"), HERE / "cover.png", 1280, 720)  # картинка в описании бота: 640x360 в BotFather
+        Image.open(HERE / "cover.png").resize((640, 360), Image.LANCZOS).save(HERE / "cover-640x360.png", optimize=True)
+    print("готово")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

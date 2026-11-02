@@ -4,3 +4,4 @@ state.json
 state.tmp
 __pycache__/
 .claude/
+promo/
