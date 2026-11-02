@@ -503,20 +503,82 @@ class Signals(unittest.TestCase):
         self.assertEqual(store.get_signal(sig["id"])["chat"], 0)
 
 
+class Tramites(unittest.TestCase):
+    def test_canje_checks_only_the_exchange(self):
+        """В «Canjes» запись для полиции (FFCCS) давала людям с canje ложное «есть свободные даты»."""
+        self.assertTrue(dgt.wanted("CNJ", "Canje de permisos"))
+        self.assertFalse(dgt.wanted("CNJ", "Canjes de Fuerzas y Cuerpos de Seguridad Españoles (FFCCS)"))
+        self.assertFalse(dgt.wanted("CNJ", "Inscripción, sustitución y renovación de permisos europeos"))
+        self.assertTrue(dgt.wanted("CYV", "Duplicados / Renovaciones"))
+        self.assertFalse(dgt.wanted("CYV", "Algo para Fuerzas y Cuerpos de Seguridad"))
+
+    def test_sessions_are_spaced(self):
+        keep, sleep, slept = dict(dgt._gate), dgt.time.sleep, []
+        dgt._gate.update(at=0.0, slow=1.0)
+        dgt.time.sleep = slept.append  # во всех тестах сон отключён, здесь только считаем, сколько бы ждали
+        try:
+            for _ in range(3):
+                dgt._wait_turn()
+            dgt.slow_down()
+            dgt._wait_turn()
+        finally:
+            dgt.time.sleep = sleep
+            dgt._gate.update(keep)
+        self.assertEqual(len(slept), 3)
+        self.assertTrue(all(dgt.SESSION_GAP - 1 < s <= dgt.SESSION_GAP for s in slept[:2]))
+        self.assertGreater(slept[2], dgt.SESSION_GAP * 1.9, "после ошибки сессии вдвое реже")
+
+
 class Outage(unittest.TestCase):
+    def setUp(self):
+        self.notify = checker.notify_admins
+
     def tearDown(self):
-        checker.status.update(down_since=None, streak=0, probes=0, probe_at=0)
+        checker.notify_admins = self.notify
+        checker.status.update(down_since=None, streak=0, probes=0, probe_at=0, trouble_since=None, cool_until=0)
+        dgt._gate["slow"] = 1.0
+
+    def test_short_errors_only_slow_down(self):
+        """02.11.2026: DGT отвечал 500 после частых сессий, и каждые 8 минут шли письма «сайт недоступен»."""
+        checker.diagnose = lambda: "test"
+        sent = []
+        checker.notify_admins = lambda *a, **k: sent.append(a)
+        for _ in range(5):
+            checker._site_error(TimeoutError())
+        self.assertFalse(checker.site_down())
+        self.assertEqual(sent, [])
+        self.assertGreater(checker.status["cool_until"], time.time())
+        self.assertEqual(dgt._gate["slow"], dgt.SLOW_MAX)
+        checker._site_ok()
+        self.assertEqual(sent, [], "о восстановлении пишем, только если писали о сбое")
+        self.assertLess(dgt._gate["slow"], dgt.SLOW_MAX)
 
     def test_enters_and_leaves(self):
         checker.diagnose = lambda: "test"
-        for _ in range(3):
-            checker._site_error(TimeoutError())
+        sent = []
+        checker.notify_admins = lambda *a, **k: sent.append(a)
+        checker._site_error(TimeoutError())
+        checker.status["trouble_since"] = time.time() - checker.OUTAGE_AFTER
+        checker._site_error(TimeoutError())
         self.assertTrue(checker.site_down())
+        self.assertEqual(len(sent), 1)
         first_probe = checker.status["probe_at"]
         checker._site_error(TimeoutError())
         self.assertGreater(checker.status["probe_at"], first_probe)  # пауза растёт
         checker._site_ok()
         self.assertFalse(checker.site_down())
+        self.assertEqual(len(sent), 2)
+
+    def test_canje_waiting_for_data_is_checked_daily(self):
+        user(802)
+        premium.grant(802, 24, "test")
+        store.add_sub(802, "506", "CNJ", "Canjes")
+        key = ("506", "CNJ")
+        checker.offices[key] = {"tried": time.time() - 6 * 60, "results": [{"status": dgt.NEEDS_DATA, "days": []}]}
+        self.assertNotIn(key, checker.plan())
+        self.assertIsNone(checker.next_check_for(802))
+        checker.offices[key]["tried"] = time.time() - checker.REVERIFY - 1
+        self.assertIn(key, checker.plan())
 
     def test_premium_first_in_queue(self):
         user(800), user(801)

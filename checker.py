@@ -24,13 +24,15 @@ import views
 log = logging.getLogger("checker")
 
 lock = threading.Lock()  # к сайту DGT ходим строго по очереди
-status = {"started": int(time.time()), "last_ok": None, "checks": 0, "errors": 0, "alerts": 0, "streak": 0,
+status = {"started": int(time.time()), "last_ok": None, "checks": 0, "errors": 0, "alerts": 0, "streak": 0, "trouble_since": None, "cool_until": 0,
           "down_since": None, "probe_at": 0, "probes": 0, "backlog": 0, "due_next": None}
 durations: deque = deque(maxlen=50)         # сколько секунд заняли последние проверки
 error_times: deque = deque(maxlen=200)      # когда были ошибки сайта — для «ошибок за час»
 offices: Dict[Tuple[str, str], dict] = {}   # последний результат по каждому офису
 journal: deque = deque(maxlen=300)          # события для админки (с последнего запуска)
-DOWN_AFTER = 3                               # столько ошибок подряд — считаем, что сайт недоступен
+OUTAGE_AFTER = 15 * 60                       # столько секунд без единого ответа — сбой: людям предупреждение, админам письмо
+COOLDOWN = 3 * 60                            # после ошибки сайта пауза перед следующей проверкой, растёт с каждой ошибкой
+REVERIFY = 24 * 3600                         # запись только через заявку с личными данными (canje): перепроверяем раз в сутки
 PROBE_MIN, PROBE_MAX = 5 * 60, 60 * 60       # пауза между пробами при сбое: от 5 минут до часа
 PACE = (8, 14)                               # пауза между офисами, секунд
 _window_sent: Dict[int, Tuple[str, int]] = {}  # кому уже напомнили в этот час
@@ -86,8 +88,8 @@ def diagnose() -> str:
 
 
 def _site_ok() -> None:
-    status["streak"] = 0
-    status["last_ok"] = int(time.time())
+    status.update(streak=0, last_ok=int(time.time()), trouble_since=None, cool_until=0)
+    dgt.relax()
     if site_down():
         minutes = round((time.time() - status["down_since"]) / 60)
         status.update(down_since=None, probes=0, probe_at=0)
@@ -100,15 +102,23 @@ def _site_error(err: Exception) -> None:
     status["streak"] += 1
     error_times.append(time.time())
     store.bump("errors")
+    now = time.time()
+    status["trouble_since"] = status["trouble_since"] or now
     if site_down():
         status["probes"] += 1
-        status["probe_at"] = time.time() + min(PROBE_MAX, PROBE_MIN * 2 ** status["probes"])
-    elif status["streak"] >= DOWN_AFTER:
-        status.update(down_since=int(time.time()), probes=0, probe_at=time.time() + PROBE_MIN)
+        status["probe_at"] = now + min(PROBE_MAX, PROBE_MIN * 2 ** status["probes"])
+        return
+    # Ошибка 500 после частых запросов — это сайт просит притормозить, а не сбой. Пауза и реже сессии, людей не тревожим.
+    slow = dgt.slow_down()
+    status["cool_until"] = now + COOLDOWN * min(4, status["streak"])
+    if status["streak"] == 1:
+        log.info("сайт DGT ответил ошибкой (%s), пауза %d мин, сессии реже в %.0f раз", type(err).__name__, COOLDOWN // 60, slow)
+    if now - status["trouble_since"] >= OUTAGE_AFTER:
+        status.update(down_since=int(status["trouble_since"]), probes=0, probe_at=now + PROBE_MIN)
         report = diagnose()
         log.warning("сайт DGT недоступен: %r\n%s", err, report)
         event("🛑 Сайт DGT недоступен с сервера — проверки перешли в редкие пробы", "error")
-        notify_admins("🛑 <b>Сайт DGT недоступен с сервера</b>\n"
+        notify_admins("🛑 <b>Сайт DGT недоступен с сервера</b> уже 15 минут\n"
                       "Проверки перешли в редкие пробы (от 5 минут до часа), пользователи видят предупреждение, "
                       f"оплата закрыта.\n\n<pre>{views.esc(report)}</pre>", silent=False)
 
@@ -120,17 +130,27 @@ def _intervals(chats: List[int]) -> int:
     return int(store.setting(key)) * 60
 
 
+def waits_for_data(key: Tuple[str, str]) -> bool:
+    """Офис отвечает только «заявка с личными данными»: календаря нет, часто проверять бессмысленно."""
+    results = offices.get(key, {}).get("results")
+    return bool(results) and all(r.get("status") == dgt.NEEDS_DATA for r in results)
+
+
+def every(key: Tuple[str, str], chats: List[int]) -> int:
+    return REVERIFY if waits_for_data(key) else _intervals(chats)
+
+
 def plan() -> List[Tuple[str, str]]:
     """Офисы, которым пора на проверку: сначала Premium, затем те, что ждут дольше всех."""
     now = time.time()
     due, soonest = [], None
     groups = store.key_groups()
     for key, subs in groups.items():
-        every = _intervals([s["chat"] for s in subs])
+        period = every(key, [s["chat"] for s in subs])
         last = offices.get(key, {}).get("tried", 0)
-        wait = last + every - now
+        wait = last + period - now
         if wait <= 0:
-            is_paid = every == int(store.setting("interval_premium")) * 60
+            is_paid = period == int(store.setting("interval_premium")) * 60
             due.append((0 if is_paid else 1, last, -len(subs), key))
         elif soonest is None or wait < soonest:
             soonest = wait
@@ -147,6 +167,8 @@ def next_check_for(chat: int) -> Optional[int]:
         if s["paused"]:
             continue
         key = (s["centro"], s["area"])
+        if waits_for_data(key):
+            continue
         chats = [x["chat"] for x in store.subs_for(*key) if not x["paused"]]
         times.append(offices.get(key, {}).get("tried", 0) + _intervals(chats or [chat]))
     return int(min(times)) if times else None
@@ -155,11 +177,11 @@ def next_check_for(chat: int) -> Optional[int]:
 def capacity() -> dict:
     """Нагрузка: сколько офисов успеваем проверить за интервал."""
     avg = sum(durations) / len(durations) if durations else 11.0
-    per_office = avg + sum(PACE) / 2
+    per_office = max(avg + sum(PACE) / 2, dgt.SESSION_GAP * dgt._gate["slow"])
     groups = store.key_groups()
     need = 0.0  # секунд работы в минуту
-    for subs in groups.values():
-        need += per_office / (_intervals([s["chat"] for s in subs]) / 60)
+    for key, subs in groups.items():
+        need += per_office / (every(key, [s["chat"] for s in subs]) / 60)
     return {"avg": avg, "per_office": per_office, "fits": int(600 // per_office), "offices": len(groups),
             "load": round(need / 60 * 100), "errors_hour": sum(1 for t in error_times if t > time.time() - 3600)}
 
@@ -175,6 +197,9 @@ def loop() -> None:
                 if time.time() >= status["probe_at"]:
                     probe()
                 time.sleep(10)
+                continue
+            if time.time() < status["cool_until"]:
+                time.sleep(5)
                 continue
             keys = plan()
             if keys:

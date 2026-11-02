@@ -4,6 +4,7 @@ from __future__ import annotations
 import html
 import random
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -21,6 +22,41 @@ AJAX_HEADERS = {"Faces-Request": "partial/ajax", "X-Requested-With": "XMLHttpReq
 TIMEOUT = (15, 60)
 PAUSE = (0.8, 2.0)   # пауза между запросами одной проверки — сайт не любит частые обращения
 MAX_MONTHS = 3       # сколько месяцев календаря просматривать
+SESSION_GAP = 20.0   # секунд между новыми сессиями: если открывать их чаще, сайт отвечает ошибкой 500 (замерено 02.11.2026)
+SLOW_MAX = 8.0       # во сколько раз максимум растягиваем паузу, пока сайт отвечает ошибками
+# В «Canjes» кроме обмена прав есть записи для полиции и военных (FFCCS) и для прав стран ЕС.
+# Людям с canje они не подходят: свободные даты там раньше давали ложные уведомления.
+WANTED = {"CNJ": ("canje de permisos",)}
+SKIP = ("fuerzas y cuerpos",)
+_gate = {"at": 0.0, "slow": 1.0}
+_gate_lock = threading.Lock()
+
+
+def _wait_turn() -> None:
+    """Новая сессия на сайте — не чаще раза в SESSION_GAP секунд на весь сервер."""
+    with _gate_lock:
+        wait = _gate["at"] + SESSION_GAP * _gate["slow"] - time.monotonic()
+        if _gate["at"] and wait > 0:
+            time.sleep(wait)
+        _gate["at"] = time.monotonic()
+
+
+def slow_down() -> float:
+    """Сайт ответил ошибкой: реже открываем сессии. Возвращает новый множитель паузы."""
+    _gate["slow"] = min(SLOW_MAX, _gate["slow"] * 2)
+    return _gate["slow"]
+
+
+def relax() -> None:
+    _gate["slow"] = max(1.0, _gate["slow"] * 0.8)
+
+
+def wanted(area: str, label: str) -> bool:
+    low = label.lower()
+    if any(s in low for s in SKIP):
+        return False
+    keys = WANTED.get(area)
+    return not keys or any(k in low for k in keys)
 
 # Области (тип записи), которые встречались на сайте. У каждого офиса свой набор — его отдаёт list_areas().
 AREA_LABELS = {
@@ -66,6 +102,7 @@ class _Browser:
     """requests.Session с паузами между запросами."""
 
     def __init__(self) -> None:
+        _wait_turn()
         self.s = requests.Session()
         self.s.headers["User-Agent"] = UA
         self.s.headers["Accept-Language"] = "es-ES,es;q=0.9"
@@ -272,7 +309,7 @@ def _read_calendar(b: _Browser, t: str, tramite: str) -> Result:
 
 
 def check(centro: str, area: str) -> List[Result]:
-    """Проверяет все виды записи в области. Для каждого — отдельная сессия (так ведёт себя и браузер)."""
+    """Проверяет нужные виды записи в области. Для каждого — отдельная сессия (так ведёт себя и браузер)."""
     b = _Browser()
     catalog = _open_catalog(b, centro, area)
     if catalog is None:
@@ -280,6 +317,7 @@ def check(centro: str, area: str) -> List[Result]:
     tramites = _tramites(catalog)
     if not tramites:
         return [Result(UNKNOWN)]
+    tramites = [t for t in tramites if wanted(area, t[1])] or [t for t in tramites if wanted("", t[1])] or tramites
 
     results = []
     for i, (link, label) in enumerate(tramites):
