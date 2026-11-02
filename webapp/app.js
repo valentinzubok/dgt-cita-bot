@@ -815,6 +815,7 @@ function bonusScreen() {
     sectionHead(L.tasks, h("span", { class: "counter" }, `${finished}/${me.tasks.length}`)),
     h("div", { class: "track" }, h("i", { style: { width: `${me.tasks.length ? (finished / me.tasks.length) * 100 : 0}%` } })),
     h("div", { class: "list" }, me.tasks.map(taskRow)),
+    me.ladder ? h("div", { class: "ladder" }, rich(me.ladder)) : null,
     sectionHead(L.promo),
     promoBox(),
   ];
@@ -838,13 +839,17 @@ function textPage(kind, title) {
 function planCards() {
   const month = (me.plans.find((p) => p.id === "p30") || {}).stars;
   const label = { 7: L.plan7, 30: L.plan30, 90: L.plan90 };
+  const deal = me.plans.some((p) => p.discount);
   return me.plans.map((p) => {
     const saving = p.days === 90 && month ? Math.round((1 - p.stars / (3 * month)) * 100) : 0;
-    return h("button", { class: "plan" + (p.recurring ? " best" : ""), onclick: () => buy(p.id) },
-      p.recurring ? h("span", { class: "plan-tag" }, L.hit) : null,
+    const best = p.discount || (p.recurring && !deal);
+    return h("button", { class: "plan" + (best ? " best" : ""), onclick: () => buy(p.id) },
+      p.discount ? h("span", { class: "plan-tag" }, fill(L.saving, { n: p.discount })) : best ? h("span", { class: "plan-tag" }, L.hit) : null,
       h("span", { class: "main" }, h("b", {}, label[p.days]),
-        h("small", {}, fill(L.perDay, { n: Math.max(1, Math.round(p.stars / p.days)) }) + (p.recurring ? ` · ${L.renew}` : ""))),
+        h("small", {}, p.discount ? fill(L.discountUntil, { date: fmtUntil(p.until) })
+          : fill(L.perDay, { n: Math.max(1, Math.round(p.stars / p.days)) }) + (p.recurring ? ` · ${L.renew}` : ""))),
       saving > 0 ? h("span", { class: "pill ok" }, fill(L.saving, { n: saving })) : null,
+      p.discount ? h("s", { class: "old" }, String(p.full)) : null,
       h("span", { class: "stars" }, ico("star", 17), String(p.stars)));
   });
 }
@@ -878,7 +883,7 @@ function profileScreen() {
     me.autoRenew ? h("div", { class: "row static" }, h("span", { class: "tile sm ok" }, ico("refresh", 20)),
       h("span", { class: "main" }, h("b", {}, L.autoRenew), h("small", {}, L.autoOn)), h("button", { class: "mini", onclick: cancelRenew }, L.turnOff)) : null,
     me.inTrial ? h("div", { class: "trial-note" }, ico("gift", 18), h("span", {}, fill(L.trialBanner, { left: trialLeft() }))) : null,
-    left && !me.autoRenew ? [sectionHead(L.extend), h("div", { class: "list" }, me.outage ? notice(L.outage) : planCards())] : null,
+    (left && !me.autoRenew) || me.plans.some((p) => p.discount) ? [sectionHead(L.extend), h("div", { class: "list" }, me.outage ? notice(L.outage) : planCards())] : null,
     me.guarantee === "ready" ? row("shield", L.guaranteeBtn, null, useGuarantee) : null,
     me.guarantee === "wait" ? h("p", { class: "muted small center" }, L.guaranteeWait) : null,
     sectionHead(L.language),

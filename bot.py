@@ -149,9 +149,9 @@ def subscribe(chat: int, mid: int, cid: str, area: str, token: int) -> Optional[
                           ikb([]), mid=mid)
             actions.check_now(sub, (mid, token))
         if first:
-            return tx(lang, "🎁 +6 ч Premium за первый офис", "🎁 +6 год Premium за перший офіс",
-                            "🎁 +6 h de Premium por la primera oficina",
-                            "🎁 +6 h of Premium for your first office")
+            bonus = views.hours_text(lang, rewards.BUILTIN["b:sub"][-1])
+            return tx(lang, f"🎁 +{bonus} Premium за первый офис", f"🎁 +{bonus} Premium за перший офіс",
+                      f"🎁 +{bonus} de Premium por la primera oficina", f"🎁 +{bonus} of Premium for your first office")
     return None
 
 

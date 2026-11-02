@@ -199,15 +199,17 @@ MIGRATIONS = [
     ("chats", "paid_at", "BIGINT NOT NULL DEFAULT 0"),
     ("chats", "paid_alerts", "INTEGER NOT NULL DEFAULT 0"),
     ("chats", "windows", "TEXT"),
+    ("chats", "discount_at", "BIGINT NOT NULL DEFAULT 0"),
 ]
 SUB_FIELDS = {"max_days", "paused", "last", "checked_at", "fails", "alert_msg", "area_label",
               "booked_date", "booked_time", "reminded"}
 CHAT_FIELDS = {"name", "username", "quiet", "role", "screen", "last_seen", "lang", "alerts", "bookings", "source",
                "premium_until", "prem_notice", "sub_charge", "sub_active", "ref_code", "ref_by", "ref_done_at",
-               "ads_ok", "last_ad", "trial_at", "paid_at", "paid_alerts", "windows"}
+               "ads_ok", "last_ad", "trial_at", "paid_at", "paid_alerts", "windows", "discount_at"}
 INT_SETTINGS = {"interval", "interval_premium", "free_subs", "max_subs", "checks_paused", "notify_new", "maintenance",
                 "daily_report", "price_7", "price_30", "price_90", "ref_hours", "ref_cap", "ref_task", "ad_gap",
-                "free_radar_day", "trial_hours", "channel_delay", "post_job", "post_ad"}
+                "free_radar_day", "trial_hours", "channel_delay", "post_job", "post_ad",
+                "discount_pct", "discount_tasks"}
 DEFAULTS = {
     "interval": 30,                # минут между проверками офиса (бесплатно)
     "interval_premium": 5,         # минут между проверками офиса, за которым следит подписчик Premium
@@ -233,6 +235,8 @@ DEFAULTS = {
     "channel_delay": 30,           # минут до поста о датах в канале; 0 — не публиковать
     "post_job": 99,                # вакансия в канале, звёзд (первая бесплатно)
     "post_ad": 249,                # услуга или реклама в канале, звёзд
+    "discount_pct": 10,            # скидка на месяц Premium за задания, %; 0 — выключена
+    "discount_tasks": 2,           # сколько заданий нужно выполнить ради скидки
     "avatar_sha": "",              # какая картинка уже стоит на аватаре бота
     "ledger_salt": "",             # ключ хешей в reward_ledger, создаётся при первом запуске
 }

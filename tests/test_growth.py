@@ -20,6 +20,7 @@ import channel  # noqa: E402
 import checker  # noqa: E402
 import config  # noqa: E402
 import premium  # noqa: E402
+import rewards  # noqa: E402
 import signals  # noqa: E402
 import stats  # noqa: E402
 import store  # noqa: E402
@@ -435,6 +436,120 @@ class Stats(Base):
         self.assertTrue(any(i["city"] == "Murcia" for i in data["items"]))
 
 
+class Ladder(Base):
+    def setUp(self):
+        super().setUp()
+        store.set_setting("discount_pct", 10)
+        store.set_setting("discount_tasks", 2)
+
+    def test_day_per_task_then_discount(self):
+        chat = self.user(5601)
+        self.assertEqual(rewards.BUILTIN["b:sub"][-1], 24)
+        rewards.complete_builtin(chat, "b:sub")
+        self.assertAlmostEqual(store.get_chat(chat)["premium_until"], time.time() + 86400, delta=5)
+        self.assertEqual(premium.discount_until(chat), 0)
+        self.assertIn("Ещё 1 задание", views.discount_line(chat))
+        actions.set_ads(chat, True)
+        self.assertAlmostEqual(store.get_chat(chat)["premium_until"], time.time() + 2 * 86400, delta=5)
+        self.assertAlmostEqual(premium.discount_until(chat), time.time() + 30 * 86400, delta=5)
+        self.assertTrue(any("Скидка −10% открыта" in p["text"] for p in sent("sendMessage")), "человек узнаёт о скидке сразу")
+        self.assertIn("открыта до", views.discount_line(chat))
+
+    def test_discount_price_and_one_purchase(self):
+        chat = self.user(5602)
+        store.set_chat(chat, discount_at=int(time.time()))
+        self.assertEqual(premium.plan_price("p30d"), 89)
+        premium.on_pre_checkout({"id": "1", "from": {"id": chat}, "currency": "XTR", "total_amount": 89, "invoice_payload": "plan:p30d"}, False)
+        self.assertTrue(sent("answerPreCheckoutQuery")[-1]["ok"])
+        other = self.user(5603)
+        premium.on_pre_checkout({"id": "2", "from": {"id": other}, "currency": "XTR", "total_amount": 89, "invoice_payload": "plan:p30d"}, False)
+        self.assertFalse(sent("answerPreCheckoutQuery")[-1]["ok"], "по чужой ссылке скидку не купить")
+        msg = {"chat": {"id": chat}, "successful_payment": {"currency": "XTR", "total_amount": 89, "invoice_payload": "plan:p30d",
+                                                           "telegram_payment_charge_id": "disc1"}}
+        self.assertEqual(premium.on_payment(msg), ("p30d", 89))
+        self.assertAlmostEqual(store.get_chat(chat)["premium_until"], time.time() + 30 * 86400, delta=5)
+        self.assertEqual(premium.discount_until(chat), 0, "скидка одноразовая")
+        premium.on_pre_checkout({"id": "3", "from": {"id": chat}, "currency": "XTR", "total_amount": 89, "invoice_payload": "plan:p30d"}, False)
+        self.assertFalse(sent("answerPreCheckoutQuery")[-1]["ok"])
+
+    def test_expiry_buyers_and_switch(self):
+        chat = self.user(5604)
+        store.set_chat(chat, discount_at=int(time.time()) - 31 * 86400)
+        self.assertEqual(premium.discount_until(chat), 0)
+        buyer = self.user(5605)
+        store.set_chat(buyer, paid_at=int(time.time()))
+        store.claim_task("b:sub", buyer)
+        store.claim_task("b:ads", buyer)
+        self.assertFalse(rewards.unlock_discount(buyer), "скидка — для тех, кто ещё не покупал")
+        store.set_setting("discount_pct", 0)
+        fresh = self.user(5606)
+        store.claim_task("b:sub", fresh)
+        store.claim_task("b:ads", fresh)
+        self.assertFalse(rewards.unlock_discount(fresh))
+        self.assertEqual(views.discount_line(fresh), "")
+
+    def test_friend_counts_as_a_step(self):
+        inviter, friend = self.user(5607), self.user(5608)
+        store.set_chat(friend, ref_by=inviter, ref_done_at=int(time.time()))
+        store.claim_task(f"ref:{friend}", inviter)
+        self.assertEqual(rewards.steps(inviter)[0], 1)
+
+    def test_app_and_bot_show_the_offer(self):
+        chat = self.user(5609, "en")
+        store.set_chat(chat, discount_at=int(time.time()))
+        plans = webapp.me_payload(chat)["plans"]
+        self.assertEqual((plans[0]["id"], plans[0]["stars"], plans[0]["discount"], plans[0]["full"]), ("p30d", 89, 10, 99))
+        self.assertTrue(any("month −10%" in b.get("text", "") for row in views.plan_buttons(chat, "en") for b in row))
+        self.assertNotIn("p30d", [p["id"] for p in webapp.me_payload(self.user(5610))["plans"]])
+
+
+class Honesty(Base):
+    def test_intervals_shown_are_the_real_ones(self):
+        checker._scale.update(at=0.0)
+        keep = checker.per_office
+        checker.per_office = lambda: 40.0
+        try:
+            for i in range(12):
+                chat = self.user(5700 + i)
+                premium.grant(chat, 24, "t")
+                store.add_sub(chat, str(480 + i), "VEH", "Vehículos")
+            paid, free = checker.scales()
+            self.assertGreater(paid, 1.0, "12 офисов раз в 5 минут не помещаются в лимит сайта")
+            self.assertEqual(checker.check_minutes(True), round(5 * paid))
+            self.assertIn(f"каждые {checker.check_minutes(True)} мин", views.dashboard(5700)[0])
+        finally:
+            checker.per_office = keep
+            checker._scale.update(at=0.0)
+            for i in range(12):
+                for s in store.subs_of(5700 + i):
+                    store.delete_sub(s["id"])
+
+    def test_invoice_promises_no_exact_interval(self):
+        premium._links.clear()
+        premium.invoice_link("p7", "ru")
+        about = [p for m, p in calls if m == "createInvoiceLink"][-1]["description"]
+        self.assertNotRegex(about, r"\d+ минут")
+        self.assertIn("в первую очередь", about)
+
+    def test_new_subscriber_reuses_a_fresh_check(self):
+        chat = self.user(5720)
+        sub, _ = store.add_sub(chat, "486", "VEH", "Vehículos")
+        key = ("486", "VEH")
+        checker.offices[key] = {"results": DATES, "at": time.time() - 30, "tried": time.time() - 30, "fails": 0}
+        ran = []
+        keep = checker.run_checks
+        checker.run_checks = lambda *a, **k: ran.append(a)
+        try:
+            actions.check_now(sub)
+            actions.jobs.submit(lambda: None).result()
+            time.sleep(0.2)
+        finally:
+            checker.run_checks = keep
+        self.assertEqual(ran, [], "к сайту не ходили")
+        self.assertEqual(store.get_sub(sub["id"])["last"], DATES)
+        self.assertLess(checker.offices[key]["at"], time.time() - 20, "время проверки офиса не подменяется")
+
+
 class Screens(Base):
     def test_all_new_screens_in_every_language(self):
         for i, lang in enumerate(config.LANGS):
@@ -447,8 +562,12 @@ class Screens(Base):
                 "free": views.post_preview(chat, {**post, "stars": 0}, None), "mine": views.my_posts(chat), "partner": views.partner_view(chat),
                 "tie": views.tie_guide(chat), "windows": views.windows_view(chat, "заметка"), "window": views.window_alert(chat),
                 "stats": views.stats_view(chat), "guarantee": views.guarantee_confirm(chat),
+                "discount": (views.discount_line(chat) or "x", None),
             }.items():
                 check(self, screen, f"{name}/{lang}")
+            store.set_chat(chat, discount_at=int(time.time()))
+            check(self, views.discount_unlocked(chat), f"unlocked/{lang}")
+            check(self, (views.discount_line(chat), None), f"line/{lang}")
             for status in ("used", "paid", "active", "down", "off"):
                 self.assertTrue(views.trial_note(lang, status))
             for status in ("short", "long", "contact", "resale", "many"):

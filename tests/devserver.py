@@ -81,6 +81,8 @@ for kind, text in (("job", "Ищем повара в кафе в Малаге, �
     store.set_post(post["id"], status="published", message=post["id"], decided_at=now)
 store.add_task("channel", "Подпишись на канал OkSita News", "Підпишись на канал OkSita News", "@oksita_news", "https://t.me/oksita_news", 12,
                "Suscríbete al canal OkSita News", "Join the OkSita News channel")
+store.set_chat(14, discount_at=int(time.time()))
+store.set_chat(14, premium_until=0)
 store.flush()
 out = Path(os.environ.get("DEV_URLS", "/tmp/claude-501/oksita-dev-urls.json"))
 out.write_text(json.dumps(urls))

@@ -73,6 +73,7 @@ CAL = {
 for _c in CAL.values():
     _c.setdefault("short", [m[:3] for m in _c["gen"]])
 outage = lambda: False  # checker подставляет сюда проверку «сайт DGT недоступен»  # noqa: E731
+check_minutes = lambda paid: int(store.setting("interval_premium" if paid else "interval"))  # реальную частоту подставляет checker  # noqa: E731
 LOAD = {"bajaOcupacion": "🟢", "mediaOcupacion": "🟡", "altaOcupacion": "🔴"}
 FILTER_DAYS = (0, 7, 14, 30, 60)
 BLANK = "⠀"  # пустая клетка календаря: Telegram не принимает кнопки с пустым текстом
@@ -443,7 +444,7 @@ def dashboard(chat: int, name: str = "", next_check: Optional[int] = None, note:
                      "📡 Not sure where to go? <b>Radar</b> finds the nearby office with the earliest appointment."),
         ]
     else:
-        minutes = store.setting("interval_premium" if paid else "interval")
+        minutes = check_minutes(paid)
         strip = [f"🏢 <b>{premium.active_subs_count(chat)}/{premium.limit_subs(chat)}</b>"]
         if store.setting("checks_paused"):
             strip.append(tx(lang, "⏸ проверки остановлены", "⏸ перевірки зупинені", "⏸ revisiones detenidas", "⏸ checks stopped"))
@@ -1192,7 +1193,7 @@ def settings_view(chat: int) -> Tuple[str, dict]:
     lang = lang_of(chat)
     c = store.get_chat(chat)
     quiet, ads = c.get("quiet"), c.get("ads_ok")
-    minutes = store.setting("interval_premium" if premium.is_premium(chat) else "interval")
+    minutes = check_minutes(premium.is_premium(chat))
     state = lambda on: tx(lang, "вкл", "увімк", "sí", "on") if on else tx(lang, "выкл", "вимк", "no", "off")  # noqa: E731
     text = (tx(lang, "⚙️ <b>Настройки</b>\n\n", "⚙️ <b>Налаштування</b>\n\n",
                      "⚙️ <b>Ajustes</b>\n\n",
@@ -1635,10 +1636,16 @@ def plan_buttons(chat: int, lang: str) -> list:
                                                                                                    "week"),
               "p90": tx(lang, "3 месяца", "3 місяці", "3 meses", "3 months") + (f" · −{saving}%" if saving > 0 else "")}
     rows = []
+    if premium.discount_until(chat):
+        link = premium.invoice_link("p30d", lang)
+        pct = store.setting("discount_pct")
+        if link:
+            rows.append([url(tx(lang, f"🏷 ⭐️ {premium.plan_price('p30d')} · месяц −{pct}%", f"🏷 ⭐️ {premium.plan_price('p30d')} · місяць −{pct}%",
+                                f"🏷 ⭐️ {premium.plan_price('p30d')} · mes −{pct} %", f"🏷 ⭐️ {premium.plan_price('p30d')} · month −{pct}%"), link, "success")])
     for plan in ("p30", "p7", "p90"):
         link = premium.invoice_link(plan, lang)
         if link:
-            rows.append([url(f"⭐️ {premium.plan_price(plan)} · {labels[plan]}", link, "success" if plan == "p30" else None)])
+            rows.append([url(f"⭐️ {premium.plan_price(plan)} · {labels[plan]}", link, "success" if plan == "p30" and not rows else None)])
     return rows
 
 
@@ -1647,7 +1654,7 @@ def premium_view(chat: int, note: str = "") -> Tuple[str, dict]:
     c = store.get_chat(chat)
     paid = premium.is_premium(chat)
     free, top = store.setting("free_subs"), store.setting("max_subs")
-    slow, fast = store.setting("interval"), store.setting("interval_premium")
+    slow, fast = check_minutes(False), check_minutes(True)
     per_day = max(1, round(premium.plan_price("p30") / 30))
     lines = ["💎 <b>OkSita Premium</b>"]
     if paid:
@@ -1919,6 +1926,9 @@ def bonus_view(chat: int, note: str = "") -> Tuple[str, dict]:
                           "📝 <b>Tareas</b> ",
                           "📝 <b>Tasks</b> ") + progress(finished, len(items)))
     lines.append("<blockquote>" + "\n".join(items) + "</blockquote>")
+    ladder = discount_line(chat)
+    if ladder:
+        lines.append(ladder)
     if note:
         lines += ["", note]
     pending = rewards.pending_friends(chat)
@@ -2003,6 +2013,36 @@ def signal_added(lang: str) -> str:
               "✅ ¡Listo! Te escribiré en cuanto alguien vea plazas.", "✅ Done! I'll message you as soon as someone spots slots.")
 
 
+def discount_line(chat: int) -> str:
+    """Где человек на бонусной лестнице: сколько осталось до скидки или до какого числа она действует."""
+    lang, pct = lang_of(chat), int(store.setting("discount_pct"))
+    until = premium.discount_until(chat)
+    if until:
+        when = datetime.fromtimestamp(until, config.TZ)
+        return tx(lang, f"🏷 <b>Скидка −{pct}% на месяц Premium</b> открыта до {when:%d.%m}: {premium.plan_price('p30d')} ⭐ вместо {premium.plan_price('p30')} ⭐",
+                  f"🏷 <b>Знижка −{pct}% на місяць Premium</b> відкрита до {when:%d.%m}: {premium.plan_price('p30d')} ⭐ замість {premium.plan_price('p30')} ⭐",
+                  f"🏷 <b>Descuento −{pct} % en un mes de Premium</b> hasta el {when:%d.%m}: {premium.plan_price('p30d')} ⭐ en vez de {premium.plan_price('p30')} ⭐",
+                  f"🏷 <b>−{pct}% off a month of Premium</b> until {when:%d.%m}: {premium.plan_price('p30d')} ⭐ instead of {premium.plan_price('p30')} ⭐")
+    c = store.get_chat(chat)
+    if not pct or c.get("discount_at") or c.get("paid_at") or store.task_is_done("discount", chat):
+        return ""
+    left = max(1, int(store.setting("discount_tasks")) - rewards.steps(chat)[0])
+    n = pl(lang, left, ("задание", "задания", "заданий"), ("завдання", "завдання", "завдань"), ("tarea", "tareas"), ("task", "tasks"))
+    return tx(lang, f"🏷 Ещё {n} — и скидка −{pct}% на месяц Premium", f"🏷 Ще {n} — і знижка −{pct}% на місяць Premium",
+              f"🏷 {n} más y tendrás −{pct} % en un mes de Premium", f"🏷 {n} more and you get −{pct}% off a month of Premium")
+
+
+def discount_unlocked(chat: int) -> Tuple[str, dict]:
+    lang, pct = lang_of(chat), store.setting("discount_pct")
+    when = datetime.fromtimestamp(premium.discount_until(chat), config.TZ)
+    price, full = premium.plan_price("p30d"), premium.plan_price("p30")
+    return (tx(lang, f"🏷 <b>Скидка −{pct}% открыта!</b>\nЗа выполненные задания: месяц Premium за {price} ⭐ вместо {full} ⭐. Действует до {when:%d.%m}.",
+               f"🏷 <b>Знижку −{pct}% відкрито!</b>\nЗа виконані завдання: місяць Premium за {price} ⭐ замість {full} ⭐. Діє до {when:%d.%m}.",
+               f"🏷 <b>¡Descuento del {pct} % desbloqueado!</b>\nPor completar tareas: un mes de Premium por {price} ⭐ en vez de {full} ⭐. Válido hasta el {when:%d.%m}.",
+               f"🏷 <b>{pct}% discount unlocked!</b>\nFor completing tasks: a month of Premium for {price} ⭐ instead of {full} ⭐. Valid until {when:%d.%m}."),
+            ikb([[btn("💎 Premium", "pr", "success"), btn(hide_label(lang), "hide")]]))
+
+
 def promo_prompt(chat: int) -> Tuple[str, dict]:
     lang = lang_of(chat)
     return (tx(lang, "🎟 <b>Промокод</b>\n\nПришли код одним сообщением.", "🎟 <b>Промокод</b>\n\nНадішли код одним повідомленням.",
@@ -2069,7 +2109,7 @@ def trial_note(lang: str, status: str) -> str:
 
 def trial_view(chat: int, note: str = "") -> Tuple[str, dict]:
     lang = lang_of(chat)
-    d, slow, fast = trial_days(lang), store.setting("interval"), store.setting("interval_premium")
+    d, slow, fast = trial_days(lang), check_minutes(False), check_minutes(True)
     free, top = store.setting("free_subs"), store.setting("max_subs")
     text = (tx(lang, f"🎁 <b>{d} Premium бесплатно</b>\n\nПолный доступ ко всему, включая мини-приложение.",
                f"🎁 <b>{d} Premium безкоштовно</b>\n\nПовний доступ до всього, зокрема до міні-застосунку.",

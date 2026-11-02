@@ -130,7 +130,17 @@ def bonus_payload(chat: int, lang: str) -> dict:
     tasks += [{"key": f"t:{t['id']}", "id": t["id"], "title": views.task_title(lang, t), "reward": views.hours_text(lang, t["hours"]),
                "done": store.task_is_done(f"t:{t['id']}", chat), "url": rewards.task_url(t, chat)} for t in store.tasks(active_only=True)]
     return {"refLink": rewards.ref_link(chat), "shareText": views.invite_text(lang), "deal": views.ref_deal(lang), "friends": len(friends),
+            "ladder": views.discount_line(chat),
             "friendsCounted": sum(1 for f in friends if f.get("ref_done_at")), "pending": len(rewards.pending_friends(chat)), "tasks": tasks}
+
+
+def plans_payload(chat: int) -> list:
+    until = premium.discount_until(chat)
+    plans = [{"id": p, "days": premium.PLANS[p]["days"], "stars": premium.plan_price(p), "recurring": premium.PLANS[p]["recurring"]}
+             for p in ("p30d", "p30", "p7", "p90") if p != "p30d" or until]
+    if until:
+        plans[0].update(discount=int(store.setting("discount_pct")), until=until, full=premium.plan_price("p30"))
+    return plans
 
 
 def me_payload(chat: int) -> dict:
@@ -141,11 +151,9 @@ def me_payload(chat: int) -> dict:
             "autoRenew": bool(c.get("sub_active")), "limit": premium.limit_subs(chat), "bot": config.BOT_USERNAME, "bookUrl": dgt.START_URL,
             "trial": premium.can_trial(chat), "trialDays": views.trial_days(lang), "inTrial": premium.in_trial(chat),
             "guarantee": premium.guarantee_state(chat), "channel": channel.link(),
-            "outage": checker.site_down(), "quiet": bool(c.get("quiet")), "adsOk": bool(c.get("ads_ok")), "plans": [
-                {"id": p, "days": premium.PLANS[p]["days"], "stars": premium.plan_price(p),
-                 "recurring": premium.PLANS[p]["recurring"]} for p in ("p30", "p7", "p90")],
-            "free": {"subs": store.setting("free_subs"), "interval": store.setting("interval"), "signals": signals.FREE_SUBS},
-            "top": {"subs": store.setting("max_subs"), "interval": store.setting("interval_premium"), "signals": signals.TOP_SUBS}}
+            "outage": checker.site_down(), "quiet": bool(c.get("quiet")), "adsOk": bool(c.get("ads_ok")), "plans": plans_payload(chat),
+            "free": {"subs": store.setting("free_subs"), "interval": checker.check_minutes(False), "signals": signals.FREE_SUBS},
+            "top": {"subs": store.setting("max_subs"), "interval": checker.check_minutes(True), "signals": signals.TOP_SUBS}}
     if paid:
         data.update(subs=[sub_payload(s, lang) for s in store.subs_of(chat)], nextCheck=checker.next_check_for(chat),
                     used=premium.active_subs_count(chat), alerts=c.get("alerts") or 0, checksPaused=bool(store.setting("checks_paused")),

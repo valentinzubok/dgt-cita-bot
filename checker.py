@@ -33,6 +33,8 @@ journal: deque = deque(maxlen=300)          # события для админк
 OUTAGE_AFTER = 15 * 60                       # столько секунд без единого ответа — сбой: людям предупреждение, админам письмо
 COOLDOWN = 3 * 60                            # после ошибки сайта пауза перед следующей проверкой, растёт с каждой ошибкой
 REVERIFY = 24 * 3600                         # запись только через заявку с личными данными (canje): перепроверяем раз в сутки
+SHARE = 0.85                                 # какую часть пропускной способности отдаём плановым проверкам; остальное — радар и кнопки
+_scale = {"at": 0.0, "paid": 1.0, "free": 1.0}
 PROBE_MIN, PROBE_MAX = 5 * 60, 60 * 60       # пауза между пробами при сбое: от 5 минут до часа
 PACE = (8, 14)                               # пауза между офисами, секунд
 _window_sent: Dict[int, Tuple[str, int]] = {}  # кому уже напомнили в этот час
@@ -125,9 +127,38 @@ def _site_error(err: Exception) -> None:
 
 # ---------- очередь ----------
 
+def _base(paid: bool) -> int:
+    return int(store.setting("interval_premium" if paid else "interval")) * 60
+
+
+def scales() -> Tuple[float, float]:
+    """Во сколько раз растягиваем интервалы (Premium, бесплатно), чтобы не выходить за лимит сайта DGT.
+    Premium получает пропускную способность первым, бесплатные — остаток, но не меньше 15%. Пересчёт раз в минуту."""
+    if time.time() - _scale["at"] < 60:
+        return _scale["paid"], _scale["free"]
+    per = per_office()
+    need = {True: 0.0, False: 0.0}
+    for key, subs in store.key_groups().items():
+        if not waits_for_data(key):
+            paid = any(premium.is_premium(s["chat"]) for s in subs)
+            need[paid] += per / _base(paid)
+    paid_scale = max(1.0, need[True] / SHARE)
+    free_scale = max(1.0, need[False] / max(SHARE - need[True] / paid_scale, 0.15))
+    _scale.update(at=time.time(), paid=paid_scale, free=free_scale)
+    return paid_scale, free_scale
+
+
+def check_minutes(paid: bool) -> int:
+    """Сколько минут на самом деле между проверками сейчас. Это число видят люди."""
+    return max(1, round(_base(paid) * scales()[0 if paid else 1] / 60))
+
+
+views.check_minutes = check_minutes
+
+
 def _intervals(chats: List[int]) -> int:
-    key = "interval_premium" if any(premium.is_premium(c) for c in chats) else "interval"
-    return int(store.setting(key)) * 60
+    paid = any(premium.is_premium(c) for c in chats)
+    return int(_base(paid) * scales()[0 if paid else 1])
 
 
 def waits_for_data(key: Tuple[str, str]) -> bool:
@@ -146,11 +177,12 @@ def plan() -> List[Tuple[str, str]]:
     due, soonest = [], None
     groups = store.key_groups()
     for key, subs in groups.items():
-        period = every(key, [s["chat"] for s in subs])
+        chats = [s["chat"] for s in subs]
+        period = every(key, chats)
         last = offices.get(key, {}).get("tried", 0)
         wait = last + period - now
         if wait <= 0:
-            is_paid = period == int(store.setting("interval_premium")) * 60
+            is_paid = any(premium.is_premium(c) for c in chats)
             due.append((0 if is_paid else 1, last, -len(subs), key))
         elif soonest is None or wait < soonest:
             soonest = wait
@@ -174,15 +206,22 @@ def next_check_for(chat: int) -> Optional[int]:
     return int(min(times)) if times else None
 
 
+def per_office() -> float:
+    """Секунд на проверку одного офиса вместе с паузами: в замер входит и ожидание очереди сессий."""
+    avg = sum(durations) / len(durations) if durations else 25.0
+    return max(avg + sum(PACE) / 2, dgt.SESSION_GAP * dgt._gate["slow"])
+
+
 def capacity() -> dict:
     """Нагрузка: сколько офисов успеваем проверить за интервал."""
-    avg = sum(durations) / len(durations) if durations else 11.0
-    per_office = max(avg + sum(PACE) / 2, dgt.SESSION_GAP * dgt._gate["slow"])
+    avg = sum(durations) / len(durations) if durations else 25.0
+    per = per_office()
     groups = store.key_groups()
     need = 0.0  # секунд работы в минуту
     for key, subs in groups.items():
-        need += per_office / (every(key, [s["chat"] for s in subs]) / 60)
-    return {"avg": avg, "per_office": per_office, "fits": int(600 // per_office), "offices": len(groups),
+        need += per / (every(key, [s["chat"] for s in subs]) / 60)
+    paid_scale, free_scale = scales()
+    return {"avg": avg, "per_office": per, "fits": int(600 // per), "offices": len(groups), "paid_scale": paid_scale, "free_scale": free_scale,
             "load": round(need / 60 * 100), "errors_hour": sum(1 for t in error_times if t > time.time() - 3600)}
 
 
@@ -253,12 +292,13 @@ def _show_card(chat: int, sub: dict, target: Tuple[int, int], note: str = "") ->
         tg.show(chat, *views.card(sub, note), mid=target[0])
 
 
-def process(cid: str, area: str, results: Optional[list], err, cards: Dict[int, Tuple[int, int]]) -> None:
+def process(cid: str, area: str, results: Optional[list], err, cards: Dict[int, Tuple[int, int]], fresh: bool = True) -> None:
+    """fresh=False — результат взят из недавней проверки для другого человека: состояние офиса не трогаем."""
     name = office_name(cid, area)
     st = offices.setdefault((cid, area), {"fails": 0})
     if err is not None:
         st["fails"] += 1
-    else:
+    elif fresh:
         days = views.all_days(results)
         if days and not st.get("days"):
             event(f"🟢 Появились даты: {name} — {len(days)} дн.", "dates")

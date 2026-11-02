@@ -342,6 +342,10 @@ button.day { color: #fff; font-weight: 700; transition: transform .12s ease; }
 .post { width: 100%; text-align: left; background: var(--card); border-radius: var(--r); padding: 12px 13px; display: grid; gap: 7px; justify-items: start; box-shadow: var(--shadow), var(--edge); }
 .post p { font-size: 14px; white-space: pre-line; overflow-wrap: anywhere; }
 
+.plan .old { color: var(--hint); font-size: 14px; font-weight: 600; }
+.ladder { background: var(--vio-soft); color: var(--vio-text); border-radius: 16px; padding: 11px 13px; font-size: 14px; }
+.ladder .rich { font-size: 14px; }
+
 /* Нижнее меню */
 .tabs { position: fixed; z-index: 5; left: 50%; transform: translateX(-50%); width: min(calc(100% - 20px), 540px); bottom: calc(var(--tg-safe-area-inset-bottom, 0px) + 10px); padding: 5px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-radius: 26px; background: var(--card); box-shadow: var(--lift), var(--edge); }
 @supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {

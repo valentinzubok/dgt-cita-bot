@@ -513,12 +513,18 @@ def tasks_view() -> Tuple[str, dict]:
         rows.append([btn(f"{mark}{t['title_ru'][:32]} · +{days_text(t['hours'])} · ✅ {store.task_count('t:' + str(t['id']))}", f"ad:ti:{t['id']}")])
     rows.append([btn("➕ Канал или группа", "ad:tn:channel", "success"), btn("➕ Ссылка", "ad:tn:link")])
     rows.append([btn(f"👥 Награда за друга: {days_text(int(store.setting('ref_hours')))}", "ad:rh")])
+    pct, need = int(store.setting("discount_pct")), int(store.setting("discount_tasks"))
+    rows.append([btn("🏷 Скидка на месяц за задания, %", "noop")])
+    rows.append([btn(("✅ " if n == pct else "") + (f"−{n}%" if n else "Выкл"), f"ad:dk:pct:{n}") for n in (0, 10, 15, 20)])
+    rows.append([btn("🏷 Сколько заданий нужно", "noop")])
+    rows.append([btn(("✅ " if n == need else "") + str(n), f"ad:dk:need:{n}") for n in (1, 2, 3)])
     rows.append([BACK])
     done = " · ".join(f"{store.task_count(k)} — {v[0][:18]}" for k, v in rewards.BUILTIN.items())
     return ("📝 <b>Задания</b>\n\n<blockquote>"
             "🔑 Канал, обязательный для награды за друзей. Бот проверяет подписку сам, поэтому его надо сделать "
             "администратором канала (для группы достаточно участника).</blockquote>\n"
-            f"<i>Встроенные: {esc(done)}</i>"), ikb(rows)
+            f"<i>Встроенные: {esc(done)}</i>\n"
+            f"<i>Скидок открыто: {sum(1 for c in store.all_chats() if c.get('discount_at'))} · использовано: {store.task_count('discount')}</i>"), ikb(rows)
 
 
 def task_card(tid: int, note: str = "") -> Tuple[str, dict]:
@@ -856,6 +862,14 @@ def on_callback(chat: int, mid: int, data: str) -> Optional[str]:
         if p and p.get("draft"):
             tg.call("deleteMessage", chat_id=chat, message_id=p["draft"])
         tg.show(chat, *panel(), mid=mid, banner=views.banner("admin"))
+    elif kind == "dk":
+        what, _, value = rest.partition(":")
+        if what == "pct" and value in ("0", "10", "15", "20"):
+            store.set_setting("discount_pct", int(value))
+            premium._links.clear()
+        elif what == "need" and value in ("1", "2", "3"):
+            store.set_setting("discount_tasks", int(value))
+        tg.show(chat, *tasks_view(), mid=mid)
     elif kind == "ty":
         if rest.isdigit() and int(rest) in (0, 24, 72, 168):
             store.set_setting("trial_hours", int(rest))

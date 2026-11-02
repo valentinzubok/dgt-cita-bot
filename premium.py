@@ -17,19 +17,25 @@ PLANS = {
     "p7": {"days": 7, "price": "price_7", "recurring": False},
     "p30": {"days": 30, "price": "price_30", "recurring": True},
     "p90": {"days": 90, "price": "price_90", "recurring": False},
+    "p30d": {"days": 30, "price": "price_30", "recurring": False, "discount": True},  # месяц со скидкой за задания, один раз
 }
+DISCOUNT_DAYS = 30  # сколько дней действует открытая скидка
 BOOKED_EFFECT = "5046509860389126442"  # 🎉
 INVOICE = {  # заголовок счёта и описание: подставляются срок, офисы и интервал проверки
-    "ru": ("{days} дней", "До {subs} офисов, проверка каждые {mins} минут, радар без ограничений, мини-приложение, без рекламы."),
-    "uk": ("{days} днів", "До {subs} офісів, перевірка кожні {mins} хвилин, радар без обмежень, міні-застосунок, без реклами."),
-    "es": ("{days} días", "Hasta {subs} oficinas, revisión cada {mins} minutos, radar sin límites, miniapp y sin publicidad."),
-    "en": ("{days} days", "Up to {subs} offices, checks every {mins} minutes, unlimited radar, mini app, no ads."),
+    "ru": ("{days} дней", "До {subs} офисов, проверка в первую очередь, радар без ограничений, мини-приложение, без рекламы."),
+    "uk": ("{days} днів", "До {subs} офісів, перевірка першочергово, радар без обмежень, міні-застосунок, без реклами."),
+    "es": ("{days} días", "Hasta {subs} oficinas, revisión prioritaria, radar sin límites, miniapp y sin publicidad."),
+    "en": ("{days} days", "Up to {subs} offices, priority checks, unlimited radar, mini app, no ads."),
 }
-CHECKOUT = {  # ответ Telegram на оплату: цена изменилась, технические работы
-    "ru": ("Цена изменилась. Открой оплату заново.", "Идут технические работы, оплата временно закрыта. Попробуй позже."),
-    "uk": ("Ціна змінилася. Відкрий оплату знову.", "Тривають технічні роботи, оплату тимчасово закрито. Спробуй пізніше."),
-    "es": ("El precio ha cambiado. Vuelve a abrir el pago.", "Estamos en mantenimiento y los pagos están cerrados. Inténtalo más tarde."),
-    "en": ("The price has changed. Open the payment again.", "Maintenance in progress, payments are temporarily closed. Try again later."),
+CHECKOUT = {  # ответ Telegram на оплату: цена изменилась, технические работы, скидка недоступна
+    "ru": ("Цена изменилась. Открой оплату заново.", "Идут технические работы, оплата временно закрыта. Попробуй позже.",
+           "Скидка уже использована или её срок закончился."),
+    "uk": ("Ціна змінилася. Відкрий оплату знову.", "Тривають технічні роботи, оплату тимчасово закрито. Спробуй пізніше.",
+           "Знижку вже використано або її строк закінчився."),
+    "es": ("El precio ha cambiado. Vuelve a abrir el pago.", "Estamos en mantenimiento y los pagos están cerrados. Inténtalo más tarde.",
+           "El descuento ya se usó o ha caducado."),
+    "en": ("The price has changed. Open the payment again.", "Maintenance in progress, payments are temporarily closed. Try again later.",
+           "The discount has already been used or has expired."),
 }
 GUARANTEE_FROM, GUARANTEE_TO = 7, 14          # возврат первой оплаты: с какого по какой день после неё
 _links: Dict[Tuple[str, int, str], str] = {}  # ссылка на оплату живёт долго — не создаём её на каждое нажатие
@@ -41,7 +47,19 @@ def is_premium(chat: int) -> bool:
 
 
 def plan_price(plan: str) -> int:
-    return int(store.setting(PLANS[plan]["price"]))
+    price = int(store.setting(PLANS[plan]["price"]))
+    if PLANS[plan].get("discount"):
+        return max(1, round(price * (100 - int(store.setting("discount_pct"))) / 100))
+    return price
+
+
+def discount_until(chat: int) -> int:
+    """До какого момента у человека открыта скидка за задания. 0 — скидки нет."""
+    at = store.get_chat(chat).get("discount_at") or 0
+    if not at or not int(store.setting("discount_pct")) or store.task_is_done("discount", chat):
+        return 0
+    until = at + DISCOUNT_DAYS * DAY
+    return until if until > time.time() else 0
 
 
 def limit_subs(chat: int) -> int:
@@ -151,7 +169,7 @@ def invoice_link(plan: str, lang: str) -> Optional[str]:
         return _links[key]
     period, about = INVOICE.get(lang, INVOICE["ru"])
     title = f"{config.BRAND} Premium — " + period.format(days=info["days"])
-    text = about.format(subs=store.setting("max_subs"), mins=store.setting("interval_premium"))
+    text = about.format(subs=store.setting("max_subs"))
     params = {"title": title, "description": text, "payload": f"plan:{plan}", "provider_token": "", "currency": "XTR",
               "prices": [{"label": title, "amount": price}]}
     if info["recurring"]:
@@ -173,13 +191,15 @@ def on_pre_checkout(query: dict, site_down: bool) -> None:
     payload, chat = query.get("invoice_payload") or "", query["from"]["id"]
     plan = plan_of(payload)
     lang = store.get_chat(chat).get("lang") or "ru"
-    changed, closed = CHECKOUT.get(lang, CHECKOUT["ru"])
+    changed, closed, no_discount = CHECKOUT.get(lang, CHECKOUT["ru"])
     error = None
     if payload.startswith("post:"):
         if query.get("currency") != "XTR" or not post_check(payload, chat, query.get("total_amount")):
             error = changed
     elif not plan or query.get("currency") != "XTR" or query.get("total_amount") != plan_price(plan):
         error = changed
+    elif PLANS[plan].get("discount") and not discount_until(chat):
+        error = no_discount
     elif site_down:
         error = closed
     p = {"pre_checkout_query_id": query["id"], "ok": error is None}
@@ -200,6 +220,8 @@ def on_payment(msg: dict) -> Optional[Tuple[str, int]]:
     if not store.add_payment(charge, chat, pay["total_amount"], plan, recurring):
         return None
     store.add_premium(chat, PLANS[plan]["days"] * DAY, f"pay:{plan}")
+    if PLANS[plan].get("discount"):
+        store.claim_task("discount", chat)
     c = store.get_chat(chat)
     if not c.get("paid_at"):
         store.set_chat(chat, paid_at=int(time.time()), paid_alerts=c.get("alerts") or 0)

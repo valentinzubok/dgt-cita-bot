@@ -7,7 +7,7 @@ import logging
 import re
 import secrets
 import time
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import config
 import premium
@@ -18,7 +18,7 @@ log = logging.getLogger("rewards")
 
 MEMBER = {"creator", "administrator", "member"}
 BUILTIN = {  # задания, которые бот проверяет сам: ключ → (название на четырёх языках, часов Premium)
-    "b:sub": ("Добавь первый офис", "Додай перший офіс", "Añade tu primera oficina", "Add your first office", 6),
+    "b:sub": ("Добавь первый офис", "Додай перший офіс", "Añade tu primera oficina", "Add your first office", 24),
     "b:ads": ("Включи предложения партнёров", "Увімкни пропозиції партнерів", "Activa las ofertas de socios", "Turn on partner offers", 24),
     "b:book": ("Запишись и нажми «✅ Я записался»", "Запишись і натисни «✅ Я записався»",
                "Pide cita y pulsa «✅ Ya tengo cita»", "Book and tap “✅ I booked it”", 24),
@@ -26,6 +26,27 @@ BUILTIN = {  # задания, которые бот проверяет сам: 
 CODE_RE = re.compile(r"^[A-Za-z0-9_-]{3,32}$")
 _tries: dict = {}
 _clicked: set = set()  # кто открыл партнёрскую ссылку из задания
+on_reward: Callable[[int], None] = lambda chat: None  # подставляет actions.py: после награды проверить, не открылась ли скидка
+
+
+def steps(chat: int) -> Tuple[int, int]:
+    """Сколько шагов бонусной лестницы пройдено: встроенные задания, задания админа и друзья (один шаг)."""
+    keys = list(BUILTIN) + [f"t:{t['id']}" for t in store.tasks(active_only=True)]
+    done = sum(1 for k in keys if store.task_is_done(k, chat))
+    friend = store.task_is_done("ref:self", chat) or any(store.task_is_done(f"ref:{f['chat']}", chat) for f in store.friends_of(chat))
+    return done + int(friend), len(keys) + 1
+
+
+def unlock_discount(chat: int) -> bool:
+    """Открывает скидку на месяц, когда выполнено нужное число заданий. True — открылась только что."""
+    c = store.get_chat(chat)
+    if not int(store.setting("discount_pct")) or c.get("discount_at") or c.get("paid_at") or store.task_is_done("discount", chat):
+        return False
+    if steps(chat)[0] < int(store.setting("discount_tasks")):
+        return False
+    store.set_chat(chat, discount_at=int(time.time()))
+    store.bump("discounts")
+    return True
 
 
 def ref_link(chat: int) -> str:
@@ -98,6 +119,7 @@ def try_activate_friend(friend: int) -> Optional[int]:
     store.set_chat(friend, ref_done_at=int(time.time()))
     if store.claim_task("ref:self", friend):
         premium.grant(friend, int(store.setting("ref_hours")), "ref:friend")
+        on_reward(friend)
     store.bump("ref_activated")
     return c["ref_by"]
 
@@ -117,6 +139,8 @@ def collect(inviter: int) -> Tuple[str, int]:
         if store.claim_task(f"ref:{f['chat']}", inviter):
             premium.grant(inviter, int(store.setting("ref_hours")), "ref:invite")
             paid += 1
+    if paid:
+        on_reward(inviter)
     return ("ok", paid) if paid else ("cap", 0)
 
 
@@ -125,6 +149,7 @@ def complete_builtin(chat: int, key: str) -> Optional[int]:
     hours = BUILTIN[key][-1]
     if store.claim_task(key, chat):
         premium.grant(chat, hours, key)
+        on_reward(chat)
         return hours
     return None
 
@@ -148,6 +173,7 @@ def check_task(chat: int, tid: int) -> Tuple[str, int]:
     if store.claim_task(key, chat):
         premium.grant(chat, task["hours"], key)
         store.bump("tasks_done")
+        on_reward(chat)
         return "ok", task["hours"]
     return "done", 0
 

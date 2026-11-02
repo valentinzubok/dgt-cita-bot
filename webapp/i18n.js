@@ -2,6 +2,7 @@
 // Тексты мини-приложения. Даты и месяцы подписывает Intl, поэтому здесь их нет.
 const T = {
   uk: {
+    discountUntil: "знижка за завдання, до {date}",
     trialBtn: "Спробувати {d} безкоштовно", trialOnce: "Один раз, без оплати й автопродовження", trialTitle: "{d} Premium безкоштовно",
     trialP1: "Міні-застосунок: календар, радар, статистика", trialP2: "Перевірка кожні {fast} хв замість {slow}", trialP3: "До {top} офісів замість {free}", trialP4: "Радар без ліміту, до 250 км",
     trialFine: "Відлік іде з моменту натискання. Нічого не спишеться. Коли строк закінчиться, зайві офіси стануть на паузу.", trialStart: "Почати",
@@ -61,6 +62,7 @@ const T = {
     needTelegram: "Відкрий застосунок із Telegram.", retry: "Повторити", errorTitle: "Не вдалося завантажити",
   },
   ru: {
+    discountUntil: "скидка за задания, до {date}",
     trialBtn: "Попробовать {d} бесплатно", trialOnce: "Один раз, без оплаты и автопродления", trialTitle: "{d} Premium бесплатно",
     trialP1: "Мини-приложение: календарь, радар, статистика", trialP2: "Проверка каждые {fast} мин вместо {slow}", trialP3: "До {top} офисов вместо {free}", trialP4: "Радар без лимита, до 250 км",
     trialFine: "Отсчёт идёт с момента нажатия. Ничего не спишется. Когда срок закончится, лишние офисы встанут на паузу.", trialStart: "Начать",
@@ -120,6 +122,7 @@ const T = {
     needTelegram: "Открой приложение из Telegram.", retry: "Повторить", errorTitle: "Не удалось загрузить",
   },
   es: {
+    discountUntil: "descuento por tareas, hasta el {date}",
     trialBtn: "Probar {d} gratis", trialOnce: "Una sola vez, sin pago ni renovación", trialTitle: "{d} de Premium gratis",
     trialP1: "Miniapp: calendario, radar, estadísticas", trialP2: "Revisión cada {fast} min en vez de {slow}", trialP3: "Hasta {top} oficinas en vez de {free}", trialP4: "Radar sin límite, hasta 250 km",
     trialFine: "Empieza al pulsar. No se cobra nada. Al terminar, las oficinas de más quedan en pausa.", trialStart: "Empezar",
@@ -179,6 +182,7 @@ const T = {
     needTelegram: "Abre la app desde Telegram.", retry: "Reintentar", errorTitle: "No se pudo cargar",
   },
   en: {
+    discountUntil: "task reward, until {date}",
     trialBtn: "Try {d} for free", trialOnce: "One time, no payment or auto-renewal", trialTitle: "{d} of Premium for free",
     trialP1: "Mini app: calendar, radar, statistics", trialP2: "Checks every {fast} min instead of {slow}", trialP3: "Up to {top} offices instead of {free}", trialP4: "Unlimited radar, up to 250 km",
     trialFine: "It starts when you tap. Nothing is charged. When it ends, extra offices are paused.", trialStart: "Start",

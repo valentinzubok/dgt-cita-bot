@@ -26,6 +26,16 @@ jobs = ThreadPoolExecutor(max_workers=4, thread_name_prefix="job")  # прове
 _locks: Dict[int, threading.Lock] = {}
 _locks_guard = threading.Lock()
 AREA_RE = re.compile(r"^[A-Z0-9]{2,8}$")
+FRESH = 120  # результат офиса моложе двух минут не перепроверяем: этот офис только что проверили для кого-то другого
+
+
+def reward_hook(chat: int) -> None:
+    """После любой награды: если открылась скидка за задания, сообщаем."""
+    if rewards.unlock_discount(chat):
+        tg.send(chat, *views.discount_unlocked(chat))
+
+
+rewards.on_reward = reward_hook
 
 
 def chat_lock(chat: int) -> threading.Lock:
@@ -157,5 +167,10 @@ def remove_sub(sub: dict) -> None:
 
 def check_now(sub: dict, target: Optional[Tuple[int, int]] = None) -> None:
     """Проверка одной подписки по просьбе пользователя, в фоне."""
+    key = (sub["centro"], sub["area"])
     cards = {sub["chat"]: target} if target else None
-    jobs.submit(checker.run_checks, [(sub["centro"], sub["area"])], cards)
+    st = checker.offices.get(key, {})
+    if st.get("results") is not None and time.time() - st.get("at", 0) < FRESH:
+        jobs.submit(checker.process, *key, st["results"], None, cards or {}, False)
+        return
+    jobs.submit(checker.run_checks, [key], cards)
