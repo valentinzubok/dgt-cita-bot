@@ -92,6 +92,35 @@ def send_document(chat: int, filename: str, content: bytes, caption: str = "") -
     return bool(data.get("ok"))
 
 
+def send_photo_file(chat: int, filename: str, content: bytes, caption: str = "", kb: Optional[dict] = None) -> bool:
+    data = {"chat_id": chat, "caption": caption, "parse_mode": "HTML"}
+    if kb:
+        data["reply_markup"] = json.dumps(kb)
+    try:
+        res = _http.post(config.API + "sendPhoto", timeout=70, data=data, files={"photo": (filename, content)}).json()
+    except Exception as e:
+        log.warning("telegram sendPhoto: %s", _clean(e))
+        return False
+    if not res.get("ok"):
+        log.warning("telegram sendPhoto: %s", res.get("description"))
+    return bool(res.get("ok"))
+
+
+def upload_photo(chat: int, content: bytes) -> Optional[str]:
+    """Загружает картинку в Telegram и возвращает file_id. Сообщение с ней в чате сразу удаляется."""
+    try:
+        data = _http.post(config.API + "sendPhoto", timeout=70, data={"chat_id": chat, "disable_notification": "true"},
+                          files={"photo": ("photo.jpg", content, "image/jpeg")}).json()
+    except Exception as e:
+        log.warning("telegram sendPhoto: %s", _clean(e))
+        return None
+    if not data.get("ok"):
+        log.warning("telegram sendPhoto: %s", data.get("description"))
+        return None
+    call("deleteMessage", chat_id=chat, message_id=data["result"]["message_id"])
+    return data["result"]["photo"][-1]["file_id"]
+
+
 def set_profile_photo(content: bytes) -> bool:
     try:
         data = _http.post(config.API + "setMyProfilePhoto", timeout=70,

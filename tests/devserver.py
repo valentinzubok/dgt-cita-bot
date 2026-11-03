@@ -21,7 +21,19 @@ import tg  # noqa: E402
 import views  # noqa: E402
 import webapp  # noqa: E402
 
-tg.call = lambda method, _timeout=40, **p: {"ok": True, "result": "https://t.me/$demo"}
+OUTSIDE = {15}  # не подписан на канал: показывает экран подписки
+
+
+def fake_call(method, _timeout=40, **p):
+    if method == "getChatMember":
+        return {"ok": True, "result": {"status": "left" if p.get("user_id") in OUTSIDE else "member"}}
+    if method == "getChat":
+        return {"ok": True, "result": {"id": -1001, "title": "OkSita · чат", "username": "oksita_chat"}}
+    return {"ok": True, "result": "https://t.me/$demo"}
+
+
+tg.call = fake_call
+tg.upload_photo = lambda chat, content: "DEMO_FILE"
 dgt.list_areas = lambda cid: [("CND", "Conductores"), ("VEH", "Vehículos"), ("CNJ", "Canjes"), ("SAN", "Sanciones")]
 dgt.check = lambda cid, area: [dgt.Result("full", "demo")]
 store.init()
@@ -67,7 +79,8 @@ def seed(paid):
                     ("486", "CYV", now - hours * 3600, now - hours * 3600 + lasted * 60, count))
 
 
-urls = {"premium": link(11, "Valentyn", "ru"), "free": link(12, "Olena", "uk"), "dark": link(13, "María", "es", True), "en": link(14, "Anna", "en")}
+urls = {"premium": link(11, "Valentyn", "ru"), "free": link(12, "Olena", "uk"), "dark": link(13, "María", "es", True), "en": link(14, "Anna", "en"),
+        "gate": link(15, "Petro", "uk")}
 for chat in (11, 13, 14):
     seed(chat)
 now = int(time.time())

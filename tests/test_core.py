@@ -50,6 +50,7 @@ def fake_call(method, _timeout=40, **p):
 tg.call = fake_call
 checker.time.sleep = lambda s: None
 store.init()
+store.set_setting("gate", 0)  # обязательную подписку на канал проверяют отдельные тесты
 
 
 def user(chat, name="Test", lang="ru"):

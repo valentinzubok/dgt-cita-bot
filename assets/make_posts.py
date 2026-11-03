@@ -68,6 +68,8 @@ THEMES = {
     "docs": ("linear-gradient(135deg,#07225E 0%,#1646B8 58%,#14A7D8 100%)", "#FFD60A", "#1646B8"),
     "jobs": ("linear-gradient(135deg,#1B1147 0%,#4A1FB8 55%,#FF6B2C 100%)", "#FFB627", "#4A1FB8"),
     "friends": ("linear-gradient(135deg,#047A62 0%,#0FB78A 55%,#6EE7B7 100%)", "#FFE34D", "#047A62"),
+    "school": ("linear-gradient(135deg,#FF2D55 0%,#FF6B2C 50%,#7A1FA2 100%)", "#FFE34D", "#FF2D55"),
+    "app": ("linear-gradient(135deg,#0B3C8C 0%,#1C7CE0 55%,#2AABEE 100%)", "#FFE34D", "#1C7CE0"),
 }
 
 TEXT = {
@@ -119,6 +121,32 @@ TEXT = {
     },
 }
 
+TEXT.update({
+    "school": {
+        "uk": dict(h="Автошколам —<br><b>код для учнів</b>", sub="7 днів Premium для учнів, QR і плакат для друку — безкоштовно",
+                   chips=["🏫 До 100 учнів", "🖨 Плакат з QR", "📊 Видно, хто прийшов"], cta="Автошколам · <i>@oksitabot</i>", badge=("7", "днів")),
+        "ru": dict(h="Автошколам —<br><b>код для учеников</b>", sub="7 дней Premium для учеников, QR и плакат для печати — бесплатно",
+                   chips=["🏫 До 100 учеников", "🖨 Плакат с QR", "📊 Видно, кто пришёл"], cta="Автошколам · <i>@oksitabot</i>", badge=("7", "дней")),
+    },
+    "app": {
+        "uk": dict(h="Оголошення<br><b>з телефона</b>", sub="Текст, фото і попередній перегляд — у міні-застосунку",
+                   chips=["💼 Вакансія", "📣 Послуга", "📸 З фото"], cta="Подати · <i>@oksitabot</i>",
+                   post=("💼 Вакансія", "Шукаємо кухаря в кафе в Малазі. Повний день, договір. Пишіть @cafe_malaga")),
+        "ru": dict(h="Объявление<br><b>с телефона</b>", sub="Текст, фото и предпросмотр — в мини-приложении",
+                   chips=["💼 Вакансия", "📣 Услуга", "📸 С фото"], cta="Подать · <i>@oksitabot</i>",
+                   post=("💼 Вакансия", "Ищем повара в кафе в Малаге. Полный день, договор. Пишите @cafe_malaga")),
+    },
+})
+
+
+def qr_svg(link: str, size: int) -> str:
+    import io
+    import segno
+    out = io.BytesIO()
+    segno.make(link, error="m").save(out, kind="svg", scale=8, border=0, dark="#16161d", xmldecl=False, svgns=True, omitsize=True)
+    return out.getvalue().decode().replace("<svg ", f'<svg width="{size}" height="{size}" ', 1)
+
+
 NOTE = {  # уведомления на экране телефона: как их присылает бот
     "uk": ("зараз", "🔔 Є ВІЛЬНІ ДАТИ!", "🏢 Murcia · Exámenes<br>📅 3 дати · 12–14 листопада", "🏢 Alicante · Vehículos<br>📅 1 дата · 19 листопада",
            "понеділок, 3 листопада"),
@@ -166,6 +194,21 @@ def art(kind: str, lang: str, t: dict) -> str:
                 f'<div class="badge" style="left:380px;top:20px;width:170px;height:170px;background:#FFE34D;color:#047A62;font-size:64px">'
                 f'<div>{top}<div style="font-size:30px;margin-top:6px">{bottom}</div></div></div>'
                 '<div class="badge" style="left:20px;top:330px;width:140px;height:140px;background:#fff;color:#047A62;font-size:44px">−10%</div>')
+    if kind == "school":
+        top, bottom = t["badge"]
+        return (f'<div class="card" style="left:70px;top:40px;width:380px;padding:30px;text-align:center">'
+                f'{qr_svg("https://t.me/oksitabot?start=school-ch", 320)}'
+                '<div style="font:800 26px ui-monospace,Menlo,monospace;letter-spacing:3px;margin-top:14px;color:#16161d">SOL482</div></div>'
+                f'<div class="badge" style="left:400px;top:0;width:160px;height:160px;background:#FFE34D;color:#FF2D55;font-size:64px">'
+                f'<div>{top}<div style="font-size:28px;margin-top:4px">{bottom}</div></div></div>')
+    if kind == "app":
+        label, text = t["post"]
+        return (f'<div class="card" style="left:30px;top:30px;width:500px;padding:0;overflow:hidden">'
+                '<div style="height:170px;background:linear-gradient(135deg,#FFB627,#FF6B2C);display:grid;place-items:center;font-size:84px">🍳</div>'
+                f'<div style="padding:22px 26px"><div style="font-size:24px;font-weight:800;color:#16161d">{label}</div>'
+                f'<div style="font-size:23px;line-height:1.35;margin-top:10px;color:#2a2a35">{text}</div>'
+                '<div style="font-size:20px;margin-top:12px;color:#8a8a93;font-style:italic">📌 @oksitabot</div></div></div>'
+                '<div class="badge" style="left:430px;top:0;width:130px;height:130px;background:#16C784;color:#fff;font-size:64px">✓</div>')
     return ""
 
 
@@ -183,8 +226,8 @@ def page(kind: str, lang: str, layout: str) -> str:
 
 
 CHANNEL = {"post_how": "hero", "post_trial": "trial", "post_radar": "radar", "post_tips": "tips", "post_docs": "docs",
-           "post_jobs": "jobs", "post_friends": "friends"}
-PROMOS = ("hero", "trial", "radar", "docs", "tips", "jobs")
+           "post_jobs": "jobs", "post_friends": "friends", "post_school": "school", "post_app": "app"}
+PROMOS = ("hero", "trial", "radar", "docs", "tips", "jobs", "school", "app")
 
 
 def main(only):

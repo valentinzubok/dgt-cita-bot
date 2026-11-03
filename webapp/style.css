@@ -393,3 +393,46 @@ button.day { color: #fff; font-weight: 700; transition: transform .12s ease; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Объявления: форма, фото, предпросмотр как в канале */
+.hero-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.hero-actions .btn, .gate .btn.glass { padding: 12px 14px; }
+.stack { display: grid; gap: 10px; }
+.stack:empty { display: none; }
+.post-top { display: flex; gap: 6px; flex-wrap: wrap; }
+.compose-wrap { position: relative; display: block; }
+.compose { min-height: 170px; resize: vertical; font: inherit; color: var(--text); line-height: 1.45; padding-bottom: 30px; }
+.compose-wrap .counter { position: absolute; right: 14px; bottom: 10px; }
+.checks { display: grid; gap: 6px; font-size: 14px; font-weight: 600; color: var(--hint); }
+.checks span { display: flex; align-items: center; gap: 8px; }
+.checks .ok { color: var(--ok-text); }
+.photo-pick { width: 100%; min-height: 84px; border-radius: 18px; border: 1.5px dashed var(--line); background: var(--card); color: var(--hint); display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 650; }
+.photo-pick.has { position: relative; padding: 0; border: 0; overflow: hidden; min-height: 0; }
+.photo-pick.has img { width: 100%; max-height: 260px; object-fit: cover; display: block; }
+.photo-pick.has .round { position: absolute; top: 8px; right: 8px; background: rgba(0, 0, 0, .55); color: #fff; }
+.tgpost { background: var(--card); border-radius: 20px 20px 20px 6px; overflow: hidden; box-shadow: var(--lift), var(--edge); animation: rise .45s var(--ease) both; }
+.tgpost-head { display: flex; align-items: center; gap: 10px; padding: 11px 13px; }
+.tgpost-ava { width: 36px; height: 36px; border-radius: 50%; background: var(--brand); color: #fff; display: grid; place-items: center; font-weight: 800; }
+.tgpost-photo { width: 100%; max-height: 320px; object-fit: cover; display: block; }
+.tgpost-body { padding: 11px 14px 14px; display: grid; gap: 8px; }
+.tgpost-body p { white-space: pre-line; overflow-wrap: anywhere; font-size: 15px; }
+.tgpost-body i { color: var(--hint); font-size: 13.5px; }
+.done-mark { width: 72px; height: 72px; margin: 4px auto 6px; border-radius: 50%; display: grid; place-items: center; background: var(--ok-soft); color: var(--ok-text); animation: breathe 2.4s ease-in-out infinite; }
+
+/* Обязательная подписка на канал */
+.gate { position: relative; overflow: hidden; isolation: isolate; color: #fff; border-radius: 30px; padding: 16px 16px 18px; display: grid; gap: 14px;
+  background: radial-gradient(120% 90% at 0% 0%, rgba(255, 255, 255, .28), rgba(255, 255, 255, 0) 55%), linear-gradient(150deg, #0b3c8c, #1c7ce0 55%, #2aabee);
+  box-shadow: 0 18px 40px rgba(28, 124, 224, .35); animation: rise .5s var(--ease) both; }
+.gate-top { display: flex; align-items: center; justify-content: space-between; }
+.gate-badge { background: rgba(255, 255, 255, .2); border-radius: 99px; padding: 5px 11px; font-size: 13px; font-weight: 700; }
+.gate .lang-chip { background: rgba(255, 255, 255, .2); color: #fff; }
+.gate-art { position: relative; height: 150px; display: grid; place-items: center; }
+.gate-icon { width: 96px; height: 96px; border-radius: 30px; display: grid; place-items: center; background: #fff; color: #1c7ce0; box-shadow: 0 16px 34px rgba(4, 30, 80, .35); transform: rotate(-8deg); animation: breathe 3s ease-in-out infinite; }
+.gate-wave { position: absolute; width: 150px; height: 150px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .35); animation: wave 2.6s ease-out infinite; }
+.gate-wave.w2 { animation-delay: 1.3s; }
+@keyframes wave { from { transform: scale(.6); opacity: 1; } to { transform: scale(1.5); opacity: 0; } }
+.gate h1 { font-size: 27px; line-height: 1.12; letter-spacing: -.4px; text-align: center; }
+.gate > p { text-align: center; opacity: .92; }
+.gate .points { background: rgba(255, 255, 255, .14); }
+.gate .btn.white { color: #0b3c8c; font-size: 16.5px; min-height: 54px; }
+@media (prefers-reduced-motion: reduce) { .gate-wave, .gate-icon, .done-mark { animation: none; } }

@@ -27,9 +27,13 @@ import board
 import channel
 import checker
 import dgt
+import gate
+import group
 import premium
 import radar
+import reviews
 import rewards
+import schools
 import signals
 import store
 import tg
@@ -41,11 +45,13 @@ from views import tx
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("bot")
 
-SECTIONS = ("trial", "post", "partner", "stats", "tie", "radar", "premium", "bonus", "docs")  # разделы с прямыми ссылками ?start=… и командами
+SECTIONS = ("trial", "post", "partner", "school", "stats", "tie", "radar", "premium", "bonus", "docs")  # разделы с прямыми ссылками ?start=… и командами
 opens: Dict[int, str] = {}  # раздел из ссылки: откроется после выбора языка
 LEGACY_BUTTONS = {"➕ Добавить офис": "/add", "📋 Мои подписки": "/list", "🔄 Проверить сейчас": "/check",
                   "⚙️ Настройки": "/settings", "❓ Помощь": "/help"}  # кнопки под полем ввода из первой версии
-ALLOWED_UPDATES = ["message", "callback_query", "pre_checkout_query", "subscription"]
+ALLOWED_UPDATES = ["message", "callback_query", "pre_checkout_query", "subscription", "chat_member"]
+GATE_FREE = {"/lang", "/privacy", "/terms", "/paysupport", "/support", "/help"}  # без подписки на канал: язык, данные, условия, оплата
+GATE_FREE_CB = {"gk", "lp", "hide", "pv", "dm", "dm!", "tm", "hp", "noop", "noads"}
 pool = ThreadPoolExecutor(max_workers=12, thread_name_prefix="update")
 last_manual: Dict[int, float] = {}
 told_banned: set = set()
@@ -68,6 +74,33 @@ def home(chat: int, mid: Optional[int] = None, note: str = "") -> None:
         return
     tg.show(chat, *views.dashboard(chat, c.get("name") or "", checker.next_check_for(chat), note), mid=mid,
             banner=views.banner())
+
+
+def show_gate(chat: int, mid: Optional[int] = None) -> None:
+    mode.pop(chat, None)
+    waiting.pop(chat, None)
+    gate.shown(chat, tg.show(chat, *views.gate_view(chat), mid=mid, banner=views.banner("gate")))
+
+
+def after_gate(chat: int, mid: Optional[int]) -> None:
+    """Подписка есть: открываем раздел из ссылки или меню со спасибо."""
+    gate.waiting.pop(chat, None)
+    section = opens.pop(chat, None)
+    if section:
+        open_section(chat, section, mid)
+    else:
+        home(chat, mid, "\n\n".join(filter(None, (views.gate_thanks(views.lang_of(chat)), consume_note(chat)))))
+
+
+def on_joined(chat: int, mid: int) -> None:
+    """Человек подписался, пока смотрел на экран подписки: меню открывается само."""
+    with actions.chat_lock(chat):
+        if store.get_chat(chat).get("screen") == mid:
+            tg.navigate(chat)
+            after_gate(chat, mid)
+
+
+gate.on_joined = on_joined
 
 
 def refresh_screen(chat: int) -> None:
@@ -274,6 +307,9 @@ def open_section(chat: int, section: str, mid: Optional[int] = None) -> None:
     elif section == "partner":
         waiting[chat] = {"kind": "partner"}
         tg.show(chat, *views.partner_view(chat), mid=mid, banner=views.banner("board"))
+    elif section == "school":
+        waiting[chat] = {"kind": "school"}
+        tg.show(chat, *views.school_prompt(chat), mid=mid, banner=views.banner("board"))
     elif section == "stats":
         tg.show(chat, *views.stats_view(chat), mid=mid)
     elif section == "tie":
@@ -301,8 +337,10 @@ def consume_note(chat: int) -> str:
 
 def on_message(msg: dict) -> None:
     chat_info = msg.get("chat") or {}
+    if chat_info.get("type") in ("group", "supergroup"):
+        return group.on_message(msg)
     if chat_info.get("type") != "private":
-        return
+        return None
     chat = chat_info["id"]
     frm = msg.get("from") or {}
     c, is_new = store.touch_chat(chat, str(frm.get("first_name") or "")[:64], str(frm.get("username") or "")[:64])
@@ -354,6 +392,9 @@ def on_message(msg: dict) -> None:
         return None
 
     w = waiting.get(chat)
+    if cmd not in GATE_FREE and not (w and w["kind"] == "support" and not cmd) and not gate.allowed(chat):
+        show_gate(chat)
+        return None
     if w and w["kind"] == "post" and not cmd:
         return on_post_text(chat, lang, w, text or (msg.get("caption") or "").strip(), msg)
     if w and not cmd and text:
@@ -464,6 +505,32 @@ def on_waited_text(chat: int, c: dict, lang: str, w: dict, text: str) -> None:
         checker.notify_admins(f"🤝 <b>Заявка партнёра</b>\n{admin.uname(c)} · <code>{chat}</code>\n\n{views.esc(text[:1500])}",
                               [[btn("✉️ Ответить", f"ad:um:{chat}"), btn("👤 Карточка", f"ad:uc:{chat}")]], silent=False)
         tg.show(chat, *views.board_view(chat, views.partner_sent(lang)), banner=views.banner("board"))
+    elif w["kind"] == "school":
+        waiting.pop(chat, None)
+        schools.requests[chat] = text[:500]
+        name, city = schools.parse_request(text)
+        checker.event(f"🏫 Заявка автошколы: {name}", "user")
+        checker.notify_admins(f"🏫 <b>Заявка автошколы</b>\n{admin.uname(c)} · <code>{chat}</code>\n\n{views.esc(text[:800])}",
+                              [[btn(f"✅ Выдать код: {name[:24]}", f"ad:hn:{chat}", "success")],
+                               [btn("✉️ Ответить", f"ad:um:{chat}"), btn("👤 Карточка", f"ad:uc:{chat}")]], silent=False)
+        tg.show(chat, *views.board_view(chat, views.school_sent(lang)), banner=views.banner("board"))
+    elif w["kind"] == "review":
+        review = store.get_review(w["rid"])
+        clean = reviews.clean(text)
+        if not review or review["chat"] != chat:
+            waiting.pop(chat, None)
+        elif not clean:
+            tg.edit(chat, w["screen"], views.review_bad(lang), views.review_prompt(lang, review["id"])[1])
+        else:
+            waiting.pop(chat, None)
+            store.set_review(review["id"], text=clean)
+            review["text"] = clean
+            if review["stars"] >= 4:
+                tg.edit(chat, w["screen"], *views.review_consent(chat, review))
+            else:
+                checker.notify_admins(f"⭐ <b>Оценка {review['stars']}: что не так</b>\n{admin.uname(c)} · <code>{chat}</code>\n\n"
+                                      f"<blockquote>{views.esc(clean)}</blockquote>", [[btn("✉️ Ответить", f"ad:um:{chat}")]], silent=False)
+                tg.edit(chat, w["screen"], views.review_done(lang), ikb([[btn(views.hide_label(lang), "hide")]]))
     elif w["kind"] == "support":
         waiting.pop(chat, None)
         checker.notify_admins(f"💳 <b>Вопрос по оплате</b>\n{admin.uname(c)} · <code>{chat}</code>\n\n{views.esc(text[:1000])}",
@@ -532,7 +599,9 @@ def route_callback(cb: dict, chat: int, mid: int, data: str) -> Tuple[Optional[s
     if kind == "lg" and rest[:2] in views.LANGS:
         store.set_chat(chat, lang=rest[:2])
         premium.apply_menu_button(chat)
-        if rest.endswith(":st"):
+        if not gate.allowed(chat):
+            show_gate(chat, mid)
+        elif rest.endswith(":st"):
             tg.show(chat, *views.settings_view(chat), mid=mid)
         elif chat in opens:
             open_section(chat, opens.pop(chat), mid)
@@ -542,6 +611,12 @@ def route_callback(cb: dict, chat: int, mid: int, data: str) -> Tuple[Optional[s
         tg.show(chat, *views.language_picker("st"), mid=mid)
     elif not c.get("lang"):
         tg.show(chat, *views.language_picker(), mid=mid, banner=views.banner())
+    elif data == "gk":
+        if not gate.allowed(chat, fresh=True):
+            return views.gate_not_yet(lang), True
+        after_gate(chat, mid)
+    elif data not in GATE_FREE_CB and not gate.allowed(chat):
+        show_gate(chat, mid)
     elif data == "hide":
         if not (tg.call("deleteMessage", chat_id=chat, message_id=mid) or {}).get("ok"):
             tg.edit(chat, mid, "·")
@@ -622,6 +697,11 @@ def route_callback(cb: dict, chat: int, mid: int, data: str) -> Tuple[Optional[s
     elif data == "pn":
         waiting[chat] = {"kind": "partner"}
         tg.show(chat, *views.partner_view(chat), mid=mid, banner=views.banner("board"))
+    elif data == "sc":
+        waiting[chat] = {"kind": "school"}
+        tg.show(chat, *views.school_prompt(chat), mid=mid, banner=views.banner("board"))
+    elif kind in ("rv", "rw", "ry", "rn"):
+        return review_action(chat, mid, kind, rest, lang)
     elif kind in ("jb", "jn", "js", "jx", "jm"):
         return board_action(chat, mid, kind, rest, lang)
     elif kind == "dg":
@@ -667,6 +747,7 @@ def route_callback(cb: dict, chat: int, mid: int, data: str) -> Tuple[Optional[s
             tg.delete(chat, s.get("alert_msg"))
         premium.cancel(chat)
         store.delete_chat(chat)
+        gate.forget(chat)
         tg.set_menu_button(chat, None)
         checker.event(f"🗑 Пользователь удалил свои данные ({chat})", "user")
         tg.edit(chat, mid, views.deleted_text(lang), ikb([]))
@@ -688,6 +769,36 @@ def route_callback(cb: dict, chat: int, mid: int, data: str) -> Tuple[Optional[s
         return sub_action(chat, mid, kind, rest, lang, token)
     elif kind in ("dc", "dp", "dt", "dd", "dr", "dx", "dv"):
         return docs_action(chat, mid, kind, rest, lang)
+    return None, False
+
+
+def review_action(chat: int, mid: int, kind: str, rest: str, lang: str) -> Tuple[Optional[str], bool]:
+    """Отзыв после визита. rv — оценка, rw — написать текст, ry/rn — можно ли показывать."""
+    if kind == "rv":
+        sid, _, n = rest.partition(":")
+        sub = store.get_sub(int(sid)) if sid.isdigit() else None
+        if not n.isdigit() or not 1 <= int(n) <= 5 or (sub and sub["chat"] != chat):
+            return None, False
+        review = reviews.rate(chat, sub, int(n))
+        tg.edit(chat, mid, *views.review_after(chat, review))
+        if review["stars"] <= 3:
+            checker.notify_admins(f"⭐ <b>Оценка {review['stars']}</b> от {admin.uname(store.get_chat(chat))} · <code>{chat}</code>\n"
+                                  f"{views.esc(reviews.place(review))}", [[btn("✉️ Ответить", f"ad:um:{chat}")]])
+        return None, False
+    review = store.get_review(int(rest)) if rest.isdigit() else None
+    if not review or review["chat"] != chat:
+        return None, False
+    if kind == "rw":
+        waiting[chat] = {"kind": "review", "rid": review["id"], "screen": mid}
+        tg.edit(chat, mid, *views.review_prompt(lang, review["id"]))
+    elif kind in ("ry", "rn"):
+        store.set_review(review["id"], consent=int(kind == "ry"))
+        tg.edit(chat, mid, views.review_done(lang, kind == "ry"), ikb([[btn(views.hide_label(lang), "hide")]]))
+        if kind == "ry":
+            checker.notify_admins(f"⭐ <b>Новый отзыв</b> · {'⭐' * review['stars']}\n{views.esc(reviews.place(review))}\n\n"
+                                  f"<blockquote>{views.esc(review.get('text') or '')}</blockquote>",
+                                  [[btn("✅ На сайт", f"ad:va:{review['id']}", "success"), btn("📢 В канал", f"ad:vp:{review['id']}")],
+                                   [btn("🙈 Скрыть", f"ad:vh:{review['id']}")]])
     return None, False
 
 
@@ -878,6 +989,10 @@ def dispatch(update: dict) -> None:
     try:
         if "subscription" in update:
             return on_subscription(update["subscription"])
+        if "chat_member" in update:
+            return gate.on_member(update["chat_member"])
+        if (update.get("message") or {}).get("chat", {}).get("type") in ("group", "supergroup"):
+            return group.on_message(update["message"])  # в группе свой порядок: без очереди по человеку
         chat = chat_of(update)
         if chat is None:
             return None

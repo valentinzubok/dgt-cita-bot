@@ -9,6 +9,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import config
 import dgt
+import group
 import posts
 import store
 import tg
@@ -117,8 +118,10 @@ def welcome_text() -> str:
 
 
 def welcome_kb() -> dict:
+    chat = group.link()
     return ikb([[url("🤖 OkSita", bot_link("ch"), "primary")],
-                [url("💼 Empleo · Вакансии", bot_link("post")), url("🤝 Partners", bot_link("partner"))]])
+                [url("💼 Empleo · Вакансии", bot_link("post")), url("🤝 Partners", bot_link("partner"))],
+                [url("💬 Чат · Chat", chat)] if chat else []])
 
 
 def pin_welcome() -> str:

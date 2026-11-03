@@ -18,9 +18,12 @@ import channel
 import checker
 import config
 import dgt
+import group
 import posts
 import premium
+import reviews
 import rewards
+import schools
 import store
 import tg
 import views
@@ -96,6 +99,7 @@ def panel() -> Tuple[str, dict]:
     paid_now = sum(1 for c in chats if (c.get("premium_until") or 0) > now)
     maint = store.setting("maintenance")
     review = len(store.posts("review"))
+    fresh_reviews = sum(1 for r in store.reviews() if r["consent"] and r["status"] == "new" and r.get("text"))
     text = (
         f"🛠 <b>Админ-панель</b> · {state_line()}"
         + ("\n🚧 Пользователи видят «Технические работы»" if maint else "") + "\n\n"
@@ -120,7 +124,8 @@ def panel() -> Tuple[str, dict]:
         [btn("💰 Доход", "ad:mn", "success"), btn("🎟 Промо", "ad:pm")],
         [btn("📝 Задания", "ad:ts"), btn("📣 Реклама", "ad:ca")],
         [btn("🎁 Пробный период", "ad:ty"), btn("📌 Объявления" + (f" · {review}" if review else ""), "ad:jq", "primary" if review else None)],
-        [btn("📢 Канал", "ad:cl")],
+        [btn("📢 Канал", "ad:cl"), btn("🏫 Автошколы", "ad:hl"),
+         btn("⭐ Отзывы" + (f" · {fresh_reviews}" if fresh_reviews else ""), "ad:vw", "primary" if fresh_reviews else None)],
         [btn("📢 Рассылка", "ad:b", "primary"), btn("📜 Журнал", "ad:l:all")],
         [btn("⚙️ Настройки", "ad:s"), btn("📤 Экспорт", "ad:x")],
         [btn("🚧 Выключить техработы" if maint else "🚧 Включить техработы", "ad:pw", "danger" if maint else None)],
@@ -448,8 +453,13 @@ def channel_admin(note: str = "") -> Tuple[str, dict]:
     text = (f"📢 <b>Канал {esc(channel.username())}</b>\n\n<blockquote>"
             f"Бот в канале: <b>{esc(r['status'])}</b>\nМожет публиковать: <b>{yes(r['post'])}</b> · закреплять: <b>{yes(r['pin'])}</b>\n"
             f"Посты о датах: <b>{f'через {delay} мин' if delay else 'выключены'}</b>\n"
-            f"Сегодня постов о датах: <b>{store.metric(store.today_key(), 'channel_posts')}</b></blockquote>\n"
-            "<i>В боте даты приходят сразу, в канале с задержкой: это ведёт людей в бота.</i>"
+            f"Сегодня постов о датах: <b>{store.metric(store.today_key(), 'channel_posts')}</b>\n"
+            f"Подписались за сегодня: <b>{store.metric(store.today_key(), 'channel_joined')}</b> · "
+            f"отписались: <b>{store.metric(store.today_key(), 'channel_left')}</b> · "
+            f"через экран подписки: <b>{store.metric(store.today_key(), 'gate_joined')}</b></blockquote>\n"
+            + ("🔒 Ботом пользуются только подписчики канала: без подписки — экран «подпишись», уведомления не приходят.\n"
+               if store.setting("gate") else "🔓 Подписка на канал не обязательна.\n")
+            + "<i>В боте даты приходят сразу, в канале с задержкой: это ведёт людей в бота.</i>"
             + (f"\n\n{note}" if note else ""))
     plan, drafts = len(channel.planned()), len(store.queued(("draft",)))
     on = lambda key: "✅" if store.setting(key) else "⬜️"  # noqa: E731
@@ -458,9 +468,112 @@ def channel_admin(note: str = "") -> Tuple[str, dict]:
         [btn(("✅ " if n == delay else "") + (str(n) if n else "Выкл"), f"ad:cm:{n}") for n in (0, 15, 30, 60)],
         [btn(f"🗓 Отложенные посты · {plan} в плане · {drafts} черновиков", "ad:kq", "primary")],
         [btn(f"{on('channel_digest')} Итоги недели (вс 19:00)", "ad:kx"), btn(f"{on('channel_proof')} «Ещё одна запись»", "ad:ky")],
+        [btn(f"{on('gate')} Ботом — только с подпиской на канал", "ad:gk")],
+        [btn("💬 Группа канала" + (f" · {group.info().get('title')}" if group.info().get("id") else " · не найдена"), "ad:gg")],
         [btn("📌 Опубликовать и закрепить пост о канале", "ad:cw")],
         [url("📢 Открыть канал", channel.link()), BACK],
     ])
+
+
+# ---------- автошколы и отзывы ----------
+
+def schools_admin(note: str = "") -> Tuple[str, dict]:
+    items = store.schools()
+    lines = []
+    for x in items[:20]:
+        st = schools.stats(x)
+        lines.append(f"{'🟢' if st['active'] else '⏸'} <b>{esc(x['name'])}</b>" + (f" · {esc(x['city'])}" if x.get("city") else "")
+                     + f"\n   <code>{x['code']}</code>: {st['uses']}/{st['seats']} · пришли {st['came']} · оплатили {st['paid']}")
+    text = ("🏫 <b>Автошколы</b>\n\nКаждая получает код: 7 дней Premium для учеников (до 100), ссылку, QR и плакат для печати. "
+            "Ученики приходят с меткой <code>promo_КОД</code>, поэтому видно, кто пришёл и кто заплатил.\n\n"
+            + ("<blockquote>" + "\n".join(lines) + "</blockquote>" if lines else
+               "Пока нет. Автошкола оставляет заявку в боте: «💼 Вакансии» → «🤝 Партнёрам» → «🏫 Мы автошкола».")
+            + (f"\n\n{note}" if note else ""))
+    rows = [[btn(f"🏫 {x['name'][:30]}", f"ad:hc:{x['id']}")] for x in items[:12]]
+    rows += [[btn("➕ Добавить автошколу", "ad:ha", "primary")], [BACK, HOME]]
+    return text, ikb(rows)
+
+
+def school_card(sid: int, note: str = "") -> Tuple[str, dict]:
+    x = store.get_school(sid)
+    if not x:
+        return schools_admin("Этой автошколы уже нет.")
+    st = schools.stats(x)
+    text = (f"🏫 <b>{esc(x['name'])}</b>" + (f" · {esc(x['city'])}" if x.get("city") else "") + "\n\n<blockquote>"
+            f"🎟 Код: <code>{x['code']}</code> · {'работает' if st['active'] else 'выключен'}\n"
+            f"👥 Активировали: <b>{st['uses']}/{st['seats']}</b>\n"
+            f"🆕 Пришли новыми: <b>{st['came']}</b> · 💰 оплатили: <b>{st['paid']}</b>\n"
+            f"🔗 {schools.link(x['code'])}\n🖨 {schools.poster_url(x['code'])}</blockquote>"
+            + (f"\n\n{note}" if note else ""))
+    return text, ikb([
+        [url("🖨 Плакат", schools.poster_url(x["code"])), btn("🖼 QR сюда", f"ad:hq:{sid}")],
+        [btn("📨 Отправить комплект автошколе", f"ad:hs:{sid}")] if x.get("chat") else [],
+        [btn("⏸ Выключить код" if st["active"] else "▶️ Включить код", f"ad:ht:{sid}")],
+        [btn("⬅️ Автошколы", "ad:hl"), HOME],
+    ])
+
+
+def send_school_kit(target: int, school: dict, lang: str) -> bool:
+    ok = tg.send_photo_file(target, f"qr_{school['code']}.png", schools.qr_png(school["code"]), schools.kit_text(school, lang),
+                            ikb([[url("🖨 " + views.tx(lang, "Плакат", "Плакат", "Cartel", "Poster"), schools.poster_url(school["code"]))]]))
+    return ok
+
+
+def reviews_admin(note: str = "") -> Tuple[str, dict]:
+    avg, count = reviews.summary()
+    items = store.reviews()
+    marks = {"new": "🆕", "approved": "✅", "hidden": "🙈"}
+    lines = [f"{marks.get(r['status'], '•')} {'⭐' * r['stars']} {esc(reviews.place(r))}"
+             + (f"\n   <i>{esc(r['text'][:120])}</i>" if r.get("text") else "")
+             + ("" if r["consent"] else " · без согласия") for r in items[:12]]
+    text = (f"⭐ <b>Отзывы</b> · средняя <b>{avg}</b> из {count}\n\n"
+            "Бот спрашивает на следующий день после визита. На сайт и в канал — только с согласия человека и после твоей проверки, без имени."
+            + ("\n\n<blockquote>" + "\n".join(lines) + "</blockquote>" if lines else "\n\nПока отзывов нет.")
+            + (f"\n\n{note}" if note else ""))
+    rows = [[btn(f"{'⭐' * r['stars']} {reviews.place(r)[:24]}", f"ad:vc:{r['id']}")]
+            for r in items if r["consent"] and r.get("text") and r["status"] == "new"][:8]
+    return text, ikb(rows + [[BACK, HOME]])
+
+
+def review_card(rid: int) -> Tuple[str, dict]:
+    r = store.get_review(rid)
+    if not r:
+        return reviews_admin("Этого отзыва уже нет.")
+    text = (f"{'⭐' * r['stars']} · {esc(reviews.place(r))} · {reviews.age(r)} дн. назад\n\n<blockquote>{esc(r.get('text') or '—')}</blockquote>\n"
+            + ("✅ Человек разрешил показывать без имени." if r["consent"] else "🙈 Человек не разрешил показывать."))
+    rows = [[btn("✅ На сайт", f"ad:va:{rid}", "success"), btn("📢 В канал", f"ad:vp:{rid}")]] if r["consent"] and r.get("text") else []
+    return text, ikb(rows + [[btn("🙈 Скрыть", f"ad:vh:{rid}")], [btn("⬅️ Отзывы", "ad:vw"), HOME]])
+
+
+def group_admin(note: str = "") -> Tuple[str, dict]:
+    g = group.info(force=True)
+    yes = lambda on: "да" if on else "нет"  # noqa: E731
+    on = "✅" if store.setting("group_guard") else "⬜️"
+    if g.get("id"):
+        r = group.rights()
+        text = (f"💬 <b>Группа {esc(g['title'])}</b>\n\n<blockquote>"
+                f"Ссылка: {esc(g['link']) or 'нет — дай боту право приглашать или сделай группу публичной'}\n"
+                f"Бот в группе: <b>{esc(r.get('status', '?'))}</b> · удалять сообщения: <b>{yes(r.get('delete'))}</b>\n"
+                f"Вступили сегодня: <b>{store.metric(store.today_key(), 'group_joined')}</b> · "
+                f"удалено сообщений: <b>{store.metric(store.today_key(), 'group_deleted')}</b></blockquote>\n"
+                "Что делает бот: здоровается с новичками (одно приветствие, через 10 минут исчезает), удаляет «вступил / вышел», "
+                "удаляет продажу записей и ссылки от тех, кто вступил меньше суток назад. Переписку не хранит."
+                + ("" if r.get("delete") else "\n\n⚠️ Дай боту право <b>удалять сообщения</b>, иначе порядок наводить он не сможет."))
+    else:
+        text = ("💬 <b>Группа канала не найдена</b>\n\n"
+                "1. Создай группу в Telegram, например «OkSita · чат».\n"
+                f"2. Канал {esc(channel.username())} → Изменить → <b>Обсуждение</b> → выбери эту группу. "
+                "Посты канала будут появляться в группе, под ними — комментарии.\n"
+                "3. Добавь @" + config.BOT_USERNAME + " в группу администратором с правом удалять сообщения.\n"
+                "4. Нажми «🔄 Найти группу».\n\n<i>Или укажи группу вручную: @username или id.</i>")
+    if note:
+        text += f"\n\n{note}"
+    rows = [[btn(f"{on} Порядок в группе", "ad:gz"), btn("🔄 Найти группу", "ad:gg")],
+            [btn("✏️ Указать вручную", "ad:gs")] + ([btn("↩️ Брать из обсуждения канала", "ad:g0")] if store.setting("group") else [])]
+    if g.get("link"):
+        rows.append([url("💬 Открыть группу", g["link"])])
+    rows.append([btn("⬅️ Канал", "ad:cl"), HOME])
+    return text, ikb(rows)
 
 
 def when(ts: int) -> str:
@@ -910,6 +1023,23 @@ def handle_input(msg: dict) -> bool:
                     ikb([[btn("⚡️ Кнопка бота", "ad:kb:bot"), btn("Без кнопки", "ad:kb:none")], [btn("✖️ Отмена", "ad:kq")]]), mid=screen)
             return True
         add_queued_post(chat, screen, p, label.strip()[:32] or "⚡️ OkSita", link.strip())
+    elif kind == "school_add":
+        name, city = schools.parse_request(text)
+        if len(name) < 3:
+            tg.show(chat, "Нужно так: <code>Autoescuela Sol, Málaga</code>", ikb([[btn("✖️ Отмена", "ad:hl")]]), mid=screen)
+            return True
+        pending.pop(chat, None)
+        school = schools.create(name, city)
+        checker.event(f"🏫 Автошкола: {name}, код {school['code']}", "user")
+        tg.show(chat, *school_card(school["id"], "✅ Готово. Открой плакат или пришли QR сюда, чтобы переслать автошколе."), mid=screen)
+    elif kind == "group_set":
+        value = text.strip()
+        if not re.fullmatch(r"@[A-Za-z0-9_]{5,32}|-100\d{6,14}", value):
+            tg.show(chat, "Нужно так: <code>@username</code> или <code>-1001234567890</code>", ikb([[btn("✖️ Отмена", "ad:gg")]]), mid=screen)
+            return True
+        pending.pop(chat, None)
+        store.set_setting("group", value)
+        tg.show(chat, *group_admin("✅ Группа указана"), mid=screen)
     elif kind == "queue_time":
         at = parse_when(text)
         if not at:
@@ -1025,6 +1155,75 @@ def on_callback(chat: int, mid: int, data: str) -> Optional[str]:
         tg.show(chat, *channel_admin(), mid=mid)
     elif kind == "kq":
         tg.show(chat, *queue_view(), mid=mid)
+    elif kind == "hl":
+        tg.show(chat, *schools_admin(), mid=mid)
+    elif kind == "ha":
+        pending[chat] = {"kind": "school_add", "screen": mid}
+        tg.show(chat, "🏫 Пришли название и город автошколы через запятую: <code>Autoescuela Sol, Málaga</code>",
+                ikb([[btn("✖️ Отмена", "ad:hl")]]), mid=mid)
+    elif kind == "hn" and rest.lstrip("-").isdigit():
+        target = int(rest)
+        request = schools.requests.pop(target, None)
+        if request is None:
+            return "Заявка уже обработана или потерялась при перезапуске — добавь вручную"
+        name, city = schools.parse_request(request)
+        school = schools.create(name, city, target)
+        sent = send_school_kit(target, school, views.lang_of(target))
+        checker.event(f"🏫 Автошкола: {name}, код {school['code']}", "user")
+        tg.show(chat, *school_card(school["id"], "✅ Код создан, комплект отправлен автошколе" if sent else
+                                   "✅ Код создан. ⚠️ Автошколе отправить не вышло — перешли QR сам"), mid=mid)
+    elif kind in ("hc", "hq", "hs", "ht") and rest.isdigit():
+        school = store.get_school(int(rest))
+        if not school:
+            tg.show(chat, *schools_admin("Этой автошколы уже нет."), mid=mid)
+        elif kind == "hc":
+            tg.show(chat, *school_card(school["id"]), mid=mid)
+        elif kind == "hq":
+            return "🖼 QR отправлен ниже" if send_school_kit(chat, school, "ru") else "⚠️ Не получилось отправить QR"
+        elif kind == "hs" and school.get("chat"):
+            ok = send_school_kit(school["chat"], school, views.lang_of(school["chat"]))
+            return "📨 Отправлено" if ok else "⚠️ Не доставлено"
+        elif kind == "ht":
+            promo = store.get_promo(school["code"]) or {}
+            store.set_promo_active(school["code"], not promo.get("active"))
+            tg.show(chat, *school_card(school["id"]), mid=mid)
+    elif kind == "vw":
+        tg.show(chat, *reviews_admin(), mid=mid)
+    elif kind in ("vc", "va", "vp", "vh") and rest.isdigit():
+        r = store.get_review(int(rest))
+        if not r:
+            tg.show(chat, *reviews_admin("Этого отзыва уже нет."), mid=mid)
+        elif kind == "vc":
+            tg.show(chat, *review_card(r["id"]), mid=mid)
+        elif kind == "vh":
+            store.set_review(r["id"], status="hidden")
+            tg.show(chat, *reviews_admin("🙈 Скрыт"), mid=mid)
+        elif not (r["consent"] and r.get("text")):
+            return "Человек не разрешил показывать этот отзыв"
+        elif kind == "va":
+            store.set_review(r["id"], status="approved")
+            tg.show(chat, *reviews_admin("✅ Отзыв появится на сайте"), mid=mid)
+        elif kind == "vp":
+            message = channel.publish(reviews.post_text(r), ikb([[url("⚡️ OkSita", channel.bot_link("review"), "primary")]]))
+            if not message:
+                return "Канал не принял пост: проверь права бота"
+            store.set_review(r["id"], status="approved", message=message)
+            tg.show(chat, *reviews_admin("📢 Опубликовано в канале и на сайте"), mid=mid)
+    elif kind == "gk":
+        store.set_setting("gate", 0 if store.setting("gate") else 1)
+        checker.event(f"⚙️ Обязательная подписка на канал: {'вкл' if store.setting('gate') else 'выкл'}")
+        tg.show(chat, *channel_admin(), mid=mid)
+    elif kind == "gg":
+        tg.show(chat, *group_admin(), mid=mid)
+    elif kind == "gz":
+        store.set_setting("group_guard", 0 if store.setting("group_guard") else 1)
+        tg.show(chat, *group_admin(), mid=mid)
+    elif kind == "g0":
+        store.set_setting("group", "")
+        tg.show(chat, *group_admin("↩️ Группа берётся из обсуждения канала"), mid=mid)
+    elif kind == "gs":
+        pending[chat] = {"kind": "group_set", "screen": mid}
+        tg.show(chat, "✏️ Пришли группу: <code>@username</code> или id вида <code>-1001234567890</code>.", ikb([[btn("✖️ Отмена", "ad:gg")]]), mid=mid)
     elif kind in ("kx", "ky"):
         key = "channel_digest" if kind == "kx" else "channel_proof"
         store.set_setting(key, 0 if store.setting(key) else 1)

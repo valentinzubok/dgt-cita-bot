@@ -160,9 +160,9 @@ function render(motion) {
   if (!me) return;
   stopTick();
   const wide = !me.premium;
-  if (wide) stack.length = 0;
+  if (me.gate || (wide && stack.some((s) => !s.free))) stack.length = 0;  // без Premium открыты только объявления
   const top = stack[stack.length - 1];
-  const nodes = top ? top() : wide ? lockedScreen() : SCREENS[tab]();
+  const nodes = me.gate ? gateScreen() : top ? top() : wide ? lockedScreen() : SCREENS[tab]();
   const y = window.scrollY;
   root.replaceChildren(h("div", { class: "view " + (motion || "") }, nodes));
   syncChrome();
@@ -179,7 +179,7 @@ function setTab(id) {
   render("fade");
 }
 function syncChrome() {
-  const showTabs = me && me.premium && !stack.length;
+  const showTabs = me && me.premium && !me.gate && !stack.length;
   tabbar.hidden = !showTabs;
   if (showTabs) tabbar.style.setProperty("--i", TABS.indexOf(tab));
   [...tabbar.querySelectorAll("button")].forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
@@ -962,26 +962,209 @@ function statsScreen() {
   return [h("h1", { class: "page-title" }, L.statsTitle), h("p", { class: "muted center" }, L.statsSub), box, h("p", { class: "muted small center" }, L.statsNote)];
 }
 
-// ---------- вакансии и партнёры ----------
+// ---------- вакансии и реклама ----------
 
+const POST = { kind: "job", text: "", photo: null, uploaded: false, draft: null };  // черновик живёт, пока приложение открыто
+const CONTACT = /@[A-Za-z0-9_]{4,}|t\.me\/\S+|https?:\/\/\S+|\S+@\S+\.\S+|\+?\d[\d\s().-]{7,}\d/;
+let board = null;
+
+function kindLabel(kind) { return kind === "job" ? L.kindJob : L.kindAd; }
+function minePost(p) {
+  const st = { review: ["warn", L.postReview], published: ["ok", L.postLive], rejected: ["bad", L.postRejected], draft: ["", L.postDraft] }[p.status] || ["", p.status];
+  return h("button", { class: "post", onclick: () => (p.link ? openAny(p.link) : null) },
+    h("div", { class: "post-top" }, h("span", { class: "pill " + (p.kind === "job" ? "ok" : "vio") }, kindLabel(p.kind)),
+      h("span", { class: "pill " + st[0] }, st[1])),
+    h("p", {}, p.text.length > 140 ? `${p.text.slice(0, 140)}…` : p.text));
+}
 function boardScreen() {
   const box = h("div", { class: "list" }, h("div", { class: "skeleton" }));
+  const mine = h("div", { class: "stack" });
   const prices = h("p", { class: "muted small center" });
   api("board").then((d) => {
+    board = d;
     prices.textContent = (d.freeJob ? `${L.boardFree}. ` : "") + fill(L.boardPrices, { job: d.job, ad: d.ad });
+    mine.replaceChildren(...(d.mine.length ? [sectionHead(L.boardMine), h("div", { class: "list" }, d.mine.map(minePost))] : []));
     box.replaceChildren(...(d.posts.length ? d.posts.map((p) => h("button", { class: "post", onclick: () => openAny(p.link) },
-      h("span", { class: "pill " + (p.kind === "job" ? "ok" : "vio") }, p.kind === "job" ? L.kindJob : L.kindAd),
+      h("span", { class: "pill " + (p.kind === "job" ? "ok" : "vio") }, kindLabel(p.kind)),
       h("p", {}, p.text.length > 180 ? `${p.text.slice(0, 180)}…` : p.text))) : [emptyBox(ico("case", 28), null, L.boardEmpty)]));
   }).catch(() => box.replaceChildren(h("p", { class: "muted" }, L.failed)));
   const start = (section) => () => { openTg(`https://t.me/${me.bot}?start=${section}`); if (tg) tg.close(); };
+  const write = (kind) => () => { POST.kind = kind; push(composeScreen); };
   return [
     h("section", { class: "hero dusk" }, h("i", { class: "glow" }), h("div", { class: "hero-copy wide" }, h("h1", {}, L.boardTitle), h("p", {}, L.boardText)),
-      h("button", { class: "btn white", onclick: start("post") }, ico("case", 18), L.boardPost)),
+      h("div", { class: "hero-actions" },
+        h("button", { class: "btn white", onclick: write("job") }, ico("case", 18), L.kindJob),
+        h("button", { class: "btn glass", onclick: write("ad") }, ico("megaphone", 18), L.kindAd))),
     prices,
+    mine,
+    sectionHead(L.boardLatest),
     box,
     h("div", { class: "group" },
       row("handshake", L.boardPartner, null, start("partner")),
-      row("megaphone", L.boardChannel, null, () => openAny(me.channel))),
+      row("megaphone", L.boardChannel, null, () => openAny(me.channel)),
+      me.group ? row("chat", L.groupOpen, null, () => openAny(me.group)) : null),
+  ];
+}
+boardScreen.free = true;
+
+function shrink(file) {  // фото уменьшаем в телефоне: до 1280 px, JPEG — грузится быстро и не упирается в лимиты
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, 1280 / Math.max(img.width, img.height));
+      const canvas = h("canvas", { width: Math.round(img.width * k), height: Math.round(img.height * k) });
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(img.src);
+      resolve(canvas.toDataURL("image/jpeg", 0.84));
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+async function pickPhoto(input, redraw) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  POST.photo = "loading";
+  redraw();
+  try {
+    const data = await shrink(file);
+    await api("board/photo", { data });
+    POST.photo = data;
+    POST.uploaded = true;
+    POST.draft = null;
+    haptic("medium");
+  } catch (e) {
+    POST.photo = null;
+    POST.uploaded = false;
+    toast(e.code === 429 ? L.wait : L.photoFailed, "bad");
+  }
+  redraw();
+}
+function composeScreen() {
+  if (!board) api("board").then((d) => { board = d; if (stack[stack.length - 1] === composeScreen) render(); }).catch(() => null);  // открыли сразу форму из бота
+  const max = (board && board.max) || 800, min = (board && board.min) || 30;
+  const area = h("textarea", { class: "field compose", rows: 8, maxlength: max, placeholder: POST.kind === "job" ? L.composeJob : L.composeAd });
+  area.value = POST.text;
+  const counter = h("span", { class: "counter" });
+  const checks = h("div", { class: "checks" });
+  const photoBox = h("div");
+  const file = h("input", { type: "file", accept: "image/*", hidden: true, onchange: () => pickPhoto(file, drawPhoto) });
+  const next = h("button", { class: "btn", onclick: () => push(previewScreen) }, ico("eye", 18), L.previewBtn);
+  const check = (ok, text) => h("span", { class: ok ? "ok" : "" }, ico(ok ? "check" : "x", 15), text);
+  function update() {
+    POST.text = area.value;
+    POST.draft = null;
+    const len = area.value.trim().length;
+    counter.textContent = `${len} / ${max}`;
+    const long = len >= min, contact = CONTACT.test(area.value);
+    checks.replaceChildren(check(long, fill(L.checkLen, { n: min })), check(contact, L.checkContact), check(true, L.checkRules));
+    next.disabled = !(long && contact);
+  }
+  function drawPhoto() {
+    photoBox.replaceChildren(POST.photo === "loading" ? h("div", { class: "photo-pick" }, h("span", { class: "spin" }))
+      : POST.photo ? h("div", { class: "photo-pick has" }, h("img", { src: POST.photo, alt: "" }),
+        h("button", { class: "round", "aria-label": "×", onclick: () => { POST.photo = null; POST.uploaded = false; POST.draft = null; drawPhoto(); } }, ico("x", 16)))
+        : h("button", { class: "photo-pick", onclick: () => file.click() }, ico("plus", 20), h("span", {}, L.addPhoto)));
+  }
+  area.addEventListener("input", update);
+  update();
+  drawPhoto();
+  const kinds = h("div", { class: "segment" }, ["job", "ad"].map((k) => h("button", {
+    class: k === POST.kind ? "on" : "", onclick: () => { POST.kind = k; POST.draft = null; render(); } }, kindLabel(k))));
+  const price = !board ? "…" : POST.kind === "job" && board.freeJob ? L.boardFree : `${board[POST.kind]} ⭐`;
+  return [
+    h("h1", { class: "page-title" }, POST.kind === "job" ? L.newJob : L.newAd),
+    kinds,
+    h("label", { class: "compose-wrap" }, area, counter),
+    h("div", { class: "hints" }, [L.hintCity, L.hintWhat, L.hintTerms, L.hintContact].map((t) => h("span", {}, t))),
+    checks,
+    photoBox, file,
+    h("div", { class: "row static" }, h("span", { class: "tile sm" }, ico("star", 19)), h("span", { class: "main" }, h("b", {}, price), h("small", {}, L.reviewNote))),
+    next,
+    h("p", { class: "muted small center" }, L.boardRules),
+  ];
+}
+composeScreen.free = true;
+
+function previewScreen() {
+  const stars = POST.kind === "job" && board && board.freeJob ? 0 : (board || {})[POST.kind] || 0;
+  const pay = h("button", { class: "btn success", onclick: () => submitPost(pay) }, stars ? ico("star", 18) : ico("check", 18), stars ? fill(L.payStars, { n: stars }) : L.sendReview);
+  return [
+    h("h1", { class: "page-title" }, L.previewTitle),
+    h("p", { class: "muted center" }, L.previewSub),
+    h("article", { class: "tgpost" },
+      h("div", { class: "tgpost-head" }, h("span", { class: "tgpost-ava" }, "O"), h("span", { class: "main" }, h("b", {}, "OkSita"), h("small", {}, (board && board.channel) || "@oksita_news"))),
+      POST.photo && POST.photo !== "loading" ? h("img", { class: "tgpost-photo", src: POST.photo, alt: "" }) : null,
+      h("div", { class: "tgpost-body" },
+        h("b", {}, POST.kind === "job" ? "💼 Вакансія · Вакансия · Empleo · Job" : "📣 Реклама · Publicidad · Ad"),
+        h("p", {}, POST.text.trim()),
+        h("i", {}, `📌 @${me.bot}`))),
+    pay,
+    h("button", { class: "btn quiet", onclick: pop }, ico("left", 18), L.editPost),
+    h("p", { class: "muted small center" }, L.reviewNote),
+  ];
+}
+previewScreen.free = true;
+
+async function submitPost(button) {
+  button.disabled = true;
+  try {
+    const key = `${POST.kind}|${POST.text.trim()}|${POST.uploaded}`;
+    if (!POST.draft || POST.draft.key !== key) {
+      const d = await api("board/draft", { kind: POST.kind, text: POST.text.trim(), photo: POST.uploaded });
+      POST.draft = { ...d, key };
+    }
+    const d = POST.draft;
+    if (!d.stars) {
+      await api(`board/${d.id}/send`, {});
+      return postDone();
+    }
+    const opened = (status) => { button.disabled = false; if (status === "paid") postDone(); else if (status === "failed") toast(L.payFailed, "bad"); };
+    if (tg && tg.openInvoice) tg.openInvoice(d.invoice, opened); else { openTg(d.invoice); button.disabled = false; }
+  } catch (e) {
+    button.disabled = false;
+    toast(e.data && e.data.text ? e.data.text : L.failed, "bad");
+  }
+}
+function postDone() {
+  success();
+  Object.assign(POST, { text: "", photo: null, uploaded: false, draft: null });
+  stack.length = 0;
+  if (!me.premium) stack.push(boardScreen);
+  else { tab = "profile"; stack.push(boardScreen); }
+  render("fade");
+  sheet(null, (body, close) => body.append(h("div", { class: "confirm" }, h("div", { class: "done-mark" }, ico("check", 34)),
+    h("h2", {}, L.postSentTitle), h("p", {}, L.postSentText), h("button", { class: "btn", onclick: close }, L.ok))));
+}
+
+// ---------- подписка на канал ----------
+
+let gateTimer = 0;
+function gateScreen() {
+  let busy = false;
+  const check = async (quiet) => {
+    if (busy) return;
+    busy = true;
+    try {
+      const { ok } = await api("gate", {});
+      if (ok) { clearInterval(gateTimer); success(); toast(L.gateThanks, "ok"); await load("fade"); }
+      else if (!quiet) toast(L.gateNotYet, "bad");
+    } catch (e) { if (!quiet) toast(L.failed, "bad"); }
+    busy = false;
+  };
+  clearInterval(gateTimer);
+  gateTimer = setInterval(() => { if (!me || !me.gate) clearInterval(gateTimer); else if (!document.hidden) check(true); }, 4000);
+  const point = (icon, text) => h("div", { class: "point" }, h("span", { class: "tile sm glass" }, ico(icon, 19)), h("span", {}, text));
+  return [
+    h("section", { class: "gate" },
+      h("div", { class: "gate-top" }, h("span", { class: "gate-badge" }, L.gateStep), langChip()),
+      h("div", { class: "gate-art" }, h("span", { class: "gate-wave w1" }), h("span", { class: "gate-wave w2" }), h("span", { class: "gate-icon" }, ico("megaphone", 46))),
+      h("h1", {}, fill(L.gateTitle, { name: me.channelName })),
+      h("p", {}, L.gateText),
+      h("div", { class: "points" }, point("bell", L.gateP1), point("bars", L.gateP2), point("case", L.gateP3)),
+      h("button", { class: "btn white", onclick: () => { haptic("medium"); openTg(me.channel); } }, ico("megaphone", 19), L.gateJoin),
+      h("button", { class: "btn glass", onclick: () => check(false) }, ico("check", 18), L.gateCheck)),
+    h("p", { class: "muted small center" }, L.gateNote),
   ];
 }
 
@@ -1008,6 +1191,7 @@ function lockedScreen() {
     sectionHead(L.haveCode),
     promoBox(),
     h("button", { class: "btn quiet", onclick: openBot }, ico("gift", 18), L.freeWay),
+    h("div", { class: "group" }, row("case", L.boardTitle, L.boardShort, () => push(boardScreen))),
   ];
 }
 
@@ -1036,7 +1220,13 @@ function failScreen(title, retry) {
   if (T[guess]) L = T[guess];
   if (!initData) return failScreen(L.needTelegram);
   const boot = async () => {
-    try { await load("fade"); setInterval(refresh, 45000); }
+    try {
+      await load("fade");
+      setInterval(refresh, 45000);
+      const screen = new URLSearchParams(location.search).get("screen");  // кнопка «Подать в приложении» из бота
+      if (screen === "post" && !me.gate) { stack.push(boardScreen); push(composeScreen); }
+      else if (screen === "board" && !me.gate) push(boardScreen);
+    }
     catch (e) { if (e.code === 403) failScreen("🚫"); else failScreen(L.errorTitle, boot); }
   };
   await boot();

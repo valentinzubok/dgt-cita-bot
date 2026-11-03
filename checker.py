@@ -15,7 +15,10 @@ import requests
 import channel
 import config
 import dgt
+import gate
+import group
 import premium
+import reviews
 import signals
 import store
 import tg
@@ -155,6 +158,7 @@ def check_minutes(paid: bool) -> int:
 
 views.check_minutes = check_minutes
 channel.notify = lambda text: notify_admins(text, silent=False)
+group.notify = lambda text: notify_admins(text, silent=False)
 
 
 def _intervals(chats: List[int]) -> int:
@@ -344,6 +348,9 @@ def process(cid: str, area: str, results: Optional[list], err, cards: Dict[int, 
             _show_card(chat, sub, cards[chat])
         elif sub["paused"]:
             continue
+        elif new and not gate.allowed(chat):  # вышел из канала: уведомление не шлём, раз в сутки напоминаем почему
+            if gate.nudge_due(chat):
+                gate.shown(chat, tg.show(chat, *views.gate_view(chat, missed=True), banner=views.banner("gate")))
         elif new:
             tg.delete(chat, sub.get("alert_msg"))  # в чате остаётся только свежее уведомление
             mid = tg.send(chat, *views.alert(sub, results, new), silent=is_quiet(chat))
@@ -374,6 +381,7 @@ def channel_loop() -> None:
         time.sleep(60)
         try:
             channel.tick(offices)
+            group.sweep()
         except Exception:
             log.exception("ошибка канала")
 
@@ -408,10 +416,12 @@ def send_reminders() -> None:
             if sub.get("booked_time") and sub["booked_time"] <= now.strftime("%H:%M"):
                 store.update_sub(sub["id"], reminded=bits)  # визит уже прошёл — не напоминаем
                 continue
+        elif reviews.ask_due(sub, now):
+            when, bits = "review", bits | 7
         else:
             continue
         tg.delete(sub["chat"], sub.get("alert_msg"))
-        mid = tg.send(sub["chat"], *views.reminder(sub, when))
+        mid = tg.send(sub["chat"], *(views.review_ask(sub) if when == "review" else views.reminder(sub, when)), silent=when == "review")
         store.update_sub(sub["id"], reminded=bits, alert_msg=mid)
 
 

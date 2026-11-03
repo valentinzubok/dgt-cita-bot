@@ -12,6 +12,7 @@ from typing import Dict, Optional, Tuple
 import checker
 import config
 import dgt
+import gate
 import premium
 import radar
 import rewards
@@ -119,7 +120,7 @@ def report_signal(chat: int, province: str, doc: str) -> Tuple[str, int]:
 
 def deliver_signal(sig: dict, targets: list) -> None:
     for chat in targets:
-        if store.get_chat(chat).get("role") not in ("banned", "pending"):
+        if store.get_chat(chat).get("role") not in ("banned", "pending") and gate.allowed(chat):
             tg.send(chat, *views.signal_alert(chat, sig), silent=checker.is_quiet(chat))
             time.sleep(0.05)  # лимит Telegram — около 30 сообщений в секунду
 

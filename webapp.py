@@ -1,6 +1,7 @@
 """Веб-сервер бота: webhook Telegram, мини-приложение и его API, переходы по рекламным ссылкам."""
 from __future__ import annotations
 
+import base64
 import gzip
 import hashlib
 import hmac
@@ -17,13 +18,18 @@ from urllib.parse import parse_qs, parse_qsl, urlsplit
 
 import actions
 import ads
+import board
 import channel
 import checker
 import config
 import dgt
+import gate
+import group
+import landing
 import premium
 import radar
 import rewards
+import schools
 import signals
 import stats
 import store
@@ -35,6 +41,7 @@ log = logging.getLogger("web")
 
 MAX_WEBHOOK_BODY = 1024 * 1024
 MAX_API_BODY = 8 * 1024
+MAX_PHOTO_BODY = 3 * 1024 * 1024  # фото объявления приходит в base64, уже сжатое приложением до 1280 px
 INIT_MAX_AGE = 24 * 3600
 CSP = ("default-src 'none'; script-src 'self' https://telegram.org; style-src 'self'; img-src 'self' data:; "
        "connect-src 'self'; base-uri 'none'; form-action 'none'; "
@@ -46,12 +53,15 @@ FILES = {"/app": "webapp/index.html", "/app/app.js": "webapp/app.js", "/app/i18n
          "/static/banner_premium.jpg": "assets/banner_premium.jpg", "/static/banner_bonus.jpg": "assets/banner_bonus.jpg",
          "/static/banner_radar.jpg": "assets/banner_radar.jpg", "/static/banner_admin.jpg": "assets/banner_admin.jpg",
          "/static/banner_docs.jpg": "assets/banner_docs.jpg", "/static/banner_board.jpg": "assets/banner_board.jpg",
-         "/static/banner_trial.jpg": "assets/banner_trial.jpg"}
+         "/static/banner_trial.jpg": "assets/banner_trial.jpg", "/static/banner_gate.jpg": "assets/banner_gate.jpg",
+         "/static/cover.png": "assets/cover.png"}
 FILES.update({f"/static/{f.name}": f"assets/{f.name}" for f in sorted((config.ROOT / "assets").glob("post_*.jpg"))})  # картинки постов канала
 STATES = {"🟢": "free", "🟡": "later", "🔴": "full", "⏸": "paused", "✅": "booked", "⏳": "pending",
           "⚠️": "error", "🔐": "locked", "⚪️": "none", "❔": "error"}
 LOADS = {"bajaOcupacion": "many", "mediaOcupacion": "mid", "altaOcupacion": "few"}
 _cache: Dict[str, Tuple[bytes, bytes, str]] = {}
+_photos: Dict[int, str] = {}
+landing.minutes = checker.check_minutes  # последнее фото объявления, загруженное из приложения: чат → file_id
 _hits: Dict[int, deque] = {}
 _hits_lock = threading.Lock()
 on_update: Callable[[dict], None] = lambda update: None  # подставляет bot.py
@@ -151,7 +161,8 @@ def me_payload(chat: int) -> dict:
     data = {"lang": lang, "langSet": bool(c.get("lang")), "name": c.get("name") or "", "premium": paid, "premiumUntil": c.get("premium_until") or 0,
             "autoRenew": bool(c.get("sub_active")), "limit": premium.limit_subs(chat), "bot": config.BOT_USERNAME, "bookUrl": dgt.START_URL,
             "trial": premium.can_trial(chat), "trialDays": views.trial_days(lang), "inTrial": premium.in_trial(chat),
-            "guarantee": premium.guarantee_state(chat), "channel": channel.link(),
+            "guarantee": premium.guarantee_state(chat), "channel": channel.link(), "channelName": channel.username(),
+            "gate": not gate.allowed(chat), "group": group.link(),
             "outage": checker.site_down(), "quiet": bool(c.get("quiet")), "adsOk": bool(c.get("ads_ok")), "plans": plans_payload(chat),
             "free": {"subs": store.setting("free_subs"), "interval": checker.check_minutes(False), "signals": signals.FREE_SUBS},
             "top": {"subs": store.setting("max_subs"), "interval": checker.check_minutes(True), "signals": signals.TOP_SUBS}}
@@ -198,7 +209,65 @@ def stats_payload(lang: str) -> dict:
 
 def board_payload(chat: int) -> dict:
     posts = [{"kind": p["kind"], "text": p["text"], "link": channel.link(p["message"]), "at": p["decided_at"]} for p in store.posts("published", 20)]
-    return {"posts": posts, "job": store.setting("post_job"), "ad": store.setting("post_ad"), "freeJob": not store.free_job_used(chat)}
+    mine = [{"id": p["id"], "kind": p["kind"], "text": p["text"], "status": p["status"], "photo": bool(p.get("photo")),
+             "link": channel.link(p["message"]) if p.get("message") else None} for p in store.posts_of(chat, 10) if p["status"] != "cancelled"]
+    return {"posts": posts, "mine": mine, "job": store.setting("post_job"), "ad": store.setting("post_ad"), "freeJob": not store.free_job_used(chat),
+            "min": board.MIN_LEN, "max": board.MAX_LEN, "busy": board.open_count(chat) >= board.MAX_OPEN, "channel": channel.username(),
+            "group": group.link()}
+
+
+def photo_upload(chat: int, raw: object) -> Tuple[int, dict]:
+    """Фото для объявления: base64 JPEG или PNG. Загружаем в Telegram и запоминаем, в базе храним только file_id."""
+    try:
+        content = base64.b64decode(str(raw or "").split(",")[-1], validate=True)
+    except ValueError:
+        return 400, {"error": "photo"}
+    if not content.startswith((b"\xff\xd8\xff", b"\x89PNG")) or len(content) > 2 * 1024 * 1024:
+        return 400, {"error": "photo"}
+    if not rate_ok(-chat - 1, 6, 600):
+        return 429, {"error": "wait"}
+    file_id = tg.upload_photo(chat, content)
+    if not file_id:
+        return 502, {"error": "telegram"}
+    _photos[chat] = file_id
+    return 200, {"status": "ok"}
+
+
+def board_api(method: str, parts: list, body: dict, chat: int, lang: str) -> Optional[Tuple[int, dict]]:
+    """Объявления из приложения: черновик, фото, оплата звёздами или бесплатная отправка на проверку.
+    Доступно без Premium: разместить вакансию может кто угодно."""
+    if parts == ["board"] and method == "GET":
+        return 200, board_payload(chat)
+    if parts == ["board", "photo"] and method == "POST":
+        return photo_upload(chat, body.get("data"))
+    if parts == ["board", "draft"] and method == "POST":
+        kind, text = body.get("kind"), str(body.get("text") or "").strip()
+        if kind not in board.KINDS:
+            return 400, {"error": "kind"}
+        if board.open_count(chat) >= board.MAX_OPEN:
+            return 409, {"status": "many", "text": views.post_error(lang, "many")}
+        status = board.check_text(text)
+        if status != "ok":
+            return 400, {"status": status, "text": views.post_error(lang, status)}
+        post = board.create(chat, kind, text, _photos.pop(chat, None) if body.get("photo") else None)
+        link = board.invoice(post, lang) if post["stars"] else None
+        if post["stars"] and not link:
+            return 502, {"error": "telegram"}
+        return 200, {"id": post["id"], "stars": post["stars"], "invoice": link}
+    if len(parts) == 3 and parts[0] == "board" and parts[1].isdigit() and method == "POST":
+        post = store.get_post(int(parts[1]))
+        if not post or post["chat"] != chat or post["status"] != "draft":
+            return 404, {"error": "not found"}
+        if parts[2] == "send":
+            if post["stars"]:
+                return 409, {"status": "pay"}  # платное уходит на проверку только после оплаты
+            board.to_moderation(post)
+            return 200, {"status": "review", "text": views.post_sent(lang)}
+        if parts[2] == "cancel":
+            store.set_post(post["id"], status="cancelled")
+            return 200, {"status": "cancelled"}
+        return 404, {"error": "not found"}
+    return None
 
 
 PAGES = {"help": views.help_view, "terms": views.terms_view, "privacy": views.privacy_view, "ukraine": views.ukraine_view,
@@ -237,6 +306,8 @@ def account_api(method: str, parts: list, body: dict, chat: int, c: dict) -> Opt
             checker.event(f"🎁 Пробный период: {c.get('name') or chat}", "user")
             return 200, {"status": status}
         return 409, {"status": status, "text": views.trial_note(lang, status)}
+    if parts == ["gate"] and method == "POST":
+        return 200, {"ok": gate.allowed(chat, fresh=True)}
     if parts == ["promo"] and method == "POST":
         status, hours = rewards.apply_promo(chat, str(body.get("code") or "")[:40])
         return 200, {"status": status, "text": views.promo_result(lang, status, hours)}
@@ -325,8 +396,6 @@ def extras_api(method: str, parts: list, body: dict, chat: int, lang: str) -> Op
         return (200, {"mine": signals.windows_of(chat)}) if status == "ok" else (400, {"error": "hour"})
     if parts == ["stats"] and method == "GET":
         return 200, stats_payload(lang)
-    if parts == ["board"] and method == "GET":
-        return 200, board_payload(chat)
     if parts == ["guarantee"] and method == "POST":
         ok = premium.use_guarantee(chat)
         checker.event(f"🛡 Гарантия: {store.get_chat(chat).get('name') or chat}, {'возврат' if ok else 'не вышло'}", "money")
@@ -365,12 +434,14 @@ def api(method: str, path: str, query: dict, body: dict, chat: int) -> Tuple[int
     if c.get("role") in ("banned", "pending"):
         return 403, {"error": "forbidden"}
     parts = [p for p in path.split("/") if p][1:]  # без «api»
-    reply = account_api(method, parts, body, chat, c)
+    if parts not in (["me"], ["lang"], ["gate"]) and not gate.allowed(chat):
+        return 403, {"error": "gate"}
+    lang = c.get("lang") or "ru"
+    reply = account_api(method, parts, body, chat, c) or board_api(method, parts, body, chat, lang)
     if reply:
         return reply
     if not premium.is_premium(chat):
         return 402, {"error": "premium"}
-    lang = c.get("lang") or "ru"
     return office_api(method, parts, query, body, chat, lang) or extras_api(method, parts, body, chat, lang) or (404, {"error": "not found"})
 
 
@@ -409,6 +480,14 @@ class Handler(BaseHTTPRequestHandler):
             raw = packed
         self._send(200, raw, ctype, headers)
 
+    def _page(self, raw: bytes, ctype: str, age: int = 600) -> None:
+        """Сайт и плакат автошколы: обычные страницы, сжатые, с кэшем на 10 минут."""
+        headers = {"Cache-Control": f"public, max-age={age}"}
+        if "gzip" in self.headers.get("Accept-Encoding", ""):
+            headers["Content-Encoding"] = "gzip"
+            raw = gzip.compress(raw, 6)
+        self._send(200, raw, ctype, headers)
+
     def _redirect(self, target: Optional[str]) -> None:
         if target:
             self._send(302, headers={"Location": target, "Cache-Control": "no-store"})
@@ -418,8 +497,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         url = urlsplit(self.path)
         path = url.path.rstrip("/") or "/"
-        if path in ("/", "/health"):
+        if path == "/health":
             return self._json(200, {"ok": True, "version": config.VERSION, "started": checker.status["started"], "ready": bool(config.TOKEN)})
+        site = landing.page(path)
+        if site:
+            return self._page(*site)
+        poster = re.fullmatch(r"/s/([A-Za-z0-9_-]{3,32})", path)
+        if poster:
+            body = schools.poster(poster.group(1))
+            return self._page(body.encode(), "text/html; charset=utf-8", 600) if body else self._send(404)
         if path in FILES and (config.ROOT / FILES[path]).exists():
             return self._file(path)
         link = re.fullmatch(r"/([rt])/(\d{1,9})/(-?\d{1,20})/([0-9a-f]{16})", path)
@@ -471,7 +557,7 @@ class Handler(BaseHTTPRequestHandler):
         body = {}
         if method == "POST":
             length = self._length()
-            if length is None or length > MAX_API_BODY:
+            if length is None or length > (MAX_PHOTO_BODY if path == "/api/board/photo" else MAX_API_BODY):
                 return self._json(413, {"error": "too large"})
             try:
                 body = json.loads(self.rfile.read(length) or b"{}")

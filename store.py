@@ -173,6 +173,25 @@ SCHEMA = [
         clicks INTEGER NOT NULL DEFAULT 0,
         created_at BIGINT NOT NULL,
         sent_at BIGINT)""",
+    f"""CREATE TABLE IF NOT EXISTS schools (
+        id {_PK},
+        name TEXT NOT NULL,
+        city TEXT,
+        code TEXT NOT NULL UNIQUE,
+        chat BIGINT,
+        created_at BIGINT NOT NULL)""",
+    f"""CREATE TABLE IF NOT EXISTS reviews (
+        id {_PK},
+        chat BIGINT NOT NULL,
+        sub BIGINT,
+        centro TEXT,
+        area TEXT,
+        stars INTEGER NOT NULL,
+        text TEXT,
+        consent INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'new',
+        message BIGINT,
+        created_at BIGINT NOT NULL)""",
     """CREATE TABLE IF NOT EXISTS ad_clicks (
         campaign BIGINT NOT NULL,
         chat BIGINT NOT NULL,
@@ -219,7 +238,7 @@ CHAT_FIELDS = {"name", "username", "quiet", "role", "screen", "last_seen", "lang
 INT_SETTINGS = {"interval", "interval_premium", "free_subs", "max_subs", "checks_paused", "notify_new", "maintenance",
                 "daily_report", "price_7", "price_30", "price_90", "ref_hours", "ref_cap", "ref_task", "ad_gap",
                 "free_radar_day", "trial_hours", "channel_delay", "post_job", "post_ad",
-                "discount_pct", "discount_tasks", "channel_digest", "channel_proof"}
+                "discount_pct", "discount_tasks", "channel_digest", "channel_proof", "gate", "group_guard"}
 DEFAULTS = {
     "interval": 30,                # минут между проверками офиса (бесплатно)
     "interval_premium": 5,         # минут между проверками офиса, за которым следит подписчик Premium
@@ -249,6 +268,9 @@ DEFAULTS = {
     "discount_tasks": 2,           # сколько заданий нужно выполнить ради скидки
     "channel_digest": 1,           # итоги недели в канале по воскресеньям
     "channel_proof": 1,            # «ещё одна запись» в канале, если человек сам согласился
+    "gate": 1,                     # пользоваться ботом можно только с подпиской на канал
+    "group": "",                   # группа (чат) канала; пусто — берём группу обсуждения, привязанную к каналу
+    "group_guard": 1,              # в группе: приветствие, удаление служебных сообщений, защита от продавцов записей
     "last_digest": "",             # за какую неделю уже вышли итоги
     "avatar_sha": "",              # какая картинка уже стоит на аватаре бота
     "ledger_salt": "",             # ключ хешей в reward_ledger, создаётся при первом запуске
@@ -268,6 +290,8 @@ _pending: Dict[Tuple[str, str], int] = {}
 _charges: Set[str] = set()
 _tasks: Dict[int, dict] = {}
 _done: Set[Tuple[str, int]] = set()
+_schools: Dict[int, dict] = {}
+_reviews: Dict[int, dict] = {}
 _promos: Dict[str, dict] = {}
 _promo_uses: Set[Tuple[str, int]] = set()
 _sig_subs: Set[Tuple[int, str, str]] = set()
@@ -454,6 +478,10 @@ def init() -> None:
         _ledger.update(r["key"] for r in q("SELECT key FROM reward_ledger"))
         _campaigns.clear()
         _campaigns.update({r["id"]: r for r in q("SELECT * FROM campaigns")})
+        _schools.clear()
+        _schools.update({r["id"]: r for r in q("SELECT * FROM schools")})
+        _reviews.clear()
+        _reviews.update({r["id"]: r for r in q("SELECT * FROM reviews")})
         _ad_clicks.clear()
         _ad_clicks.update((r["campaign"], r["chat"]) for r in q("SELECT campaign, chat FROM ad_clicks"))
         _settings.clear()
@@ -565,6 +593,14 @@ def was_deleted(chat: int) -> bool:
     return _ledger_key("seen", "", chat) in _ledger
 
 
+def forget_reviews(chat: int) -> None:
+    """Человек удалил свои данные: его отзывы тоже уходят, даже опубликованные на сайте."""
+    with _mem:
+        for rid in [rid for rid, r in _reviews.items() if r["chat"] == chat]:
+            _reviews.pop(rid)
+    write("DELETE FROM reviews WHERE chat = ?", (chat,))
+
+
 def delete_chat(chat: int) -> None:
     """Удаляет пользователя и его подписки (по его просьбе). От наград остаются только хеши:
     иначе удаление и новый /start давали бы их снова."""
@@ -595,6 +631,7 @@ def delete_chat(chat: int) -> None:
     write("DELETE FROM board WHERE chat = ? AND status <> 'published'", (chat,))
     write("UPDATE board SET chat = 0 WHERE chat = ?", (chat,))
     write("UPDATE signals SET chat = 0 WHERE chat = ?", (chat,))
+    forget_reviews(chat)
     now = int(time.time())
     for key in hashes:
         write("INSERT INTO reward_ledger (key, created_at) VALUES (?, ?) ON CONFLICT (key) DO NOTHING", (key, now))
@@ -762,6 +799,12 @@ def flush_metrics() -> None:
 def metric(day: str, key: str) -> int:
     with _mem:
         return _metrics.get((day, key), 0) + _pending.get((day, key), 0)
+
+
+def metric_total(key: str) -> int:
+    """Сумма за последние 60 дней — столько метрик держим в памяти."""
+    with _mem:
+        return sum(v for (_, k), v in _metrics.items() if k == key) + sum(v for (_, k), v in _pending.items() if k == key)
 
 
 # ---------- история появления мест ----------
@@ -1173,3 +1216,70 @@ def queued(statuses: Tuple[str, ...] = ("draft", "planned"), limit: int = 30) ->
 
 def queued_tags() -> Set[str]:
     return {r["tag"] for r in q("SELECT tag FROM channel_queue WHERE tag IS NOT NULL")}
+
+
+# ---------- автошколы ----------
+
+def add_school(name: str, city: str, code: str, chat: Optional[int]) -> dict:
+    flush(3)
+    row = q1("INSERT INTO schools (name, city, code, chat, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id",
+             (name, city, code, chat, int(time.time())))
+    school = {"id": row["id"], "name": name, "city": city, "code": code, "chat": chat, "created_at": int(time.time())}
+    with _mem:
+        _schools[school["id"]] = school
+    return dict(school)
+
+
+def schools() -> List[dict]:
+    with _mem:
+        return sorted((dict(x) for x in _schools.values()), key=lambda x: -x["id"])
+
+
+def get_school(sid: int) -> Optional[dict]:
+    with _mem:
+        x = _schools.get(sid)
+        return dict(x) if x else None
+
+
+def school_by_code(code: str) -> Optional[dict]:
+    with _mem:
+        return next((dict(x) for x in _schools.values() if x["code"] == code), None)
+
+
+# ---------- отзывы ----------
+
+def add_review(chat: int, sub: Optional[int], centro: Optional[str], area: Optional[str], stars: int) -> dict:
+    flush(3)
+    now = int(time.time())
+    row = q1("INSERT INTO reviews (chat, sub, centro, area, stars, created_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
+             (chat, sub, centro, area, stars, now))
+    review = {"id": row["id"], "chat": chat, "sub": sub, "centro": centro, "area": area, "stars": stars, "text": None,
+              "consent": 0, "status": "new", "message": None, "created_at": now}
+    with _mem:
+        _reviews[review["id"]] = review
+    return dict(review)
+
+
+def get_review(rid: int) -> Optional[dict]:
+    with _mem:
+        r = _reviews.get(rid)
+        return dict(r) if r else None
+
+
+def review_of_sub(sub: int) -> Optional[dict]:
+    with _mem:
+        return next((dict(r) for r in _reviews.values() if r["sub"] == sub), None)
+
+
+def set_review(rid: int, **fields) -> None:
+    fields = {k: v for k, v in fields.items() if k in ("stars", "text", "consent", "status", "message")}
+    with _mem:
+        if rid in _reviews:
+            _reviews[rid].update(fields)
+    if fields:
+        write(f"UPDATE reviews SET {', '.join(f'{k} = ?' for k in fields)} WHERE id = ?", (*fields.values(), rid))
+
+
+def reviews() -> List[dict]:
+    with _mem:
+        return sorted((dict(r) for r in _reviews.values()), key=lambda r: -r["id"])

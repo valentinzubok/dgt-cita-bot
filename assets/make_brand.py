@@ -128,6 +128,20 @@ TRIAL = page("linear-gradient(120deg,#160B33 0%,#3B1A8F 50%,#0FB78A 100%)", GEM,
     "{DECOR}", '<div style="position:absolute;inset:0;background:radial-gradient(circle at 26% 50%,rgba(120,240,200,.3),rgba(0,0,0,0) 50%)"></div>' + RINGS)
 
 
+MEGAPHONE = '''<svg viewBox="0 0 440 400" width="440" height="400"><defs>
+<linearGradient id="m" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#D3EBFF"/></linearGradient>
+<linearGradient id="o" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFB627"/><stop offset="1" stop-color="#FF6B2C"/></linearGradient>
+<filter id="f" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#06306B" flood-opacity=".45"/></filter></defs>
+<g filter="url(#f)"><path d="M112 246 L132 336 a14 14 0 0 0 14 11 H170 a10 10 0 0 0 10 -12 L162 246 Z" fill="#EAF5FF"/>
+<path d="M40 178 a26 26 0 0 1 26 -26 H128 L292 66 a12 12 0 0 1 18 10 V324 a12 12 0 0 1 -18 10 L128 248 H66 a26 26 0 0 1 -26 -26 Z" fill="url(#m)"/></g>
+<rect x="118" y="152" width="14" height="96" fill="#9CCBFF"/>
+<path d="M346 150 a64 64 0 0 1 0 100" stroke="#fff" stroke-width="16" fill="none" stroke-linecap="round" opacity=".9"/>
+<path d="M378 114 a116 116 0 0 1 0 172" stroke="#fff" stroke-width="16" fill="none" stroke-linecap="round" opacity=".55"/>
+<circle cx="330" cy="74" r="46" fill="url(#o)"/><path d="M310 75 l14 14 l26 -30" stroke="#fff" stroke-width="11" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'''
+GATE = page("linear-gradient(120deg,#0B3C8C 0%,#1C7CE0 55%,#2AABEE 100%)", MEGAPHONE, "OkSita <b>News</b>", "📢 @oksita_news", "#FFE34D").replace(
+    "{DECOR}", GLOW + RINGS)
+
+
 def shot(html, out, w, h, quality=86):
     with tempfile.TemporaryDirectory() as tmp:
         src, png = Path(tmp) / "p.html", Path(tmp) / "p.png"
@@ -142,7 +156,7 @@ def shot(html, out, w, h, quality=86):
 
 
 BANNERS = {"banner": HOME, "banner_premium": PREMIUM, "banner_bonus": BONUS, "banner_radar": RADAR_P, "banner_admin": ADMIN, "banner_docs": DOCS,
-           "banner_board": BOARD, "banner_trial": TRIAL}
+           "banner_board": BOARD, "banner_trial": TRIAL, "banner_gate": GATE}
 
 
 def main(only):
