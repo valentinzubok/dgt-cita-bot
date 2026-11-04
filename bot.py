@@ -45,7 +45,7 @@ from views import tx
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("bot")
 
-SECTIONS = ("trial", "post", "partner", "school", "stats", "tie", "radar", "premium", "bonus", "docs", "passport", "consul")  # разделы с прямыми ссылками ?start=… и командами
+SECTIONS = ("trial", "post", "partner", "school", "stats", "tie", "radar", "premium", "bonus", "docs", "passport", "consul", "spain")  # разделы с прямыми ссылками ?start=… и командами
 opens: Dict[int, str] = {}  # раздел из ссылки: откроется после выбора языка
 LEGACY_BUTTONS = {"➕ Добавить офис": "/add", "📋 Мои подписки": "/list", "🔄 Проверить сейчас": "/check",
                   "⚙️ Настройки": "/settings", "❓ Помощь": "/help"}  # кнопки под полем ввода из первой версии
@@ -327,6 +327,8 @@ def open_section(chat: int, section: str, mid: Optional[int] = None) -> None:
         tg.show(chat, *views.bonus_view(chat), mid=mid, banner=views.banner("bonus"))
     elif section == "docs":
         tg.show(chat, *views.docs_view(chat), mid=mid, banner=views.banner("docs"))
+    elif section == "spain":
+        tg.show(chat, *views.spain_view(chat), mid=mid)
     elif section == "passport":
         tg.show(chat, *views.passport_view(chat), mid=mid, banner=views.banner("docs"))
     elif section == "consul":
@@ -517,7 +519,7 @@ def on_waited_text(chat: int, c: dict, lang: str, w: dict, text: str) -> None:
         tg.show(chat, *views.board_view(chat, views.partner_sent(lang)), banner=views.banner("board"))
     elif w["kind"] == "school":
         waiting.pop(chat, None)
-        schools.requests[chat] = text[:500]
+        schools.add_request(chat, text)
         name, city = schools.parse_request(text)
         checker.event(f"🏫 Заявка автошколы: {name}", "user")
         checker.notify_admins(f"🏫 <b>Заявка автошколы</b>\n{admin.uname(c)} · <code>{chat}</code>\n\n{views.esc(text[:800])}",
@@ -716,6 +718,8 @@ def route_callback(cb: dict, chat: int, mid: int, data: str) -> Tuple[Optional[s
         return board_action(chat, mid, kind, rest, lang)
     elif kind == "dg":
         tg.show(chat, *views.tie_guide(chat), mid=mid, banner=views.banner("docs"))
+    elif data == "sp":
+        tg.show(chat, *views.spain_view(chat), mid=mid)
     elif kind in ("pz", "pk"):
         return ukraine_action(chat, mid, "pas" if kind == "pz" else "con", rest, lang)
     elif data == "dw":

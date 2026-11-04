@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import html
 import io
+import json
 import random
 import re
 import time
@@ -21,7 +22,7 @@ import views
 DAYS = 7            # Premium для ученика
 SEATS = 100         # учеников на один код
 VALID_DAYS = 365
-requests: Dict[int, str] = {}   # заявки автошкол: чат → текст (до решения админа)
+MAX_REQUESTS = 50
 
 
 def slug(name: str) -> str:
@@ -154,3 +155,28 @@ def poster(code: str) -> Optional[str]:
     city = f" · {html.escape(school['city'])}" if school.get("city") else ""
     return POSTER.format(name=html.escape(school["name"]), city=city, qr=qr_svg(code), code=code, days=DAYS, bot=config.BOT_USERNAME,
                          demo=html.escape(school.get("city") or "Madrid"))
+
+
+# ---------- заявки автошкол: лежат в настройках, поэтому не пропадают при перезапуске ----------
+
+def _requests() -> Dict[str, str]:
+    try:
+        data = json.loads(store.setting("school_requests") or "{}")
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def add_request(chat: int, text: str) -> None:
+    data = _requests()
+    data.pop(str(chat), None)
+    data[str(chat)] = text[:500]
+    store.set_setting("school_requests", json.dumps(dict(list(data.items())[-MAX_REQUESTS:]), ensure_ascii=False))
+
+
+def pop_request(chat: int) -> Optional[str]:
+    data = _requests()
+    text = data.pop(str(chat), None)
+    if text is not None:
+        store.set_setting("school_requests", json.dumps(data, ensure_ascii=False))
+    return text

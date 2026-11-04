@@ -16,6 +16,7 @@ import group
 import premium
 import radar
 import reviews
+import signals
 import stats
 import store
 import views
@@ -104,7 +105,7 @@ T = {
                                            "але пояснює порядок."),
                  ("А запис до Extranjería (TIE, NIE)?", "Той сайт захищений від ботів, тому ми його не перевіряємо. Натомість люди самі дають сигнал, "
                                                         "коли бачать записи у твоїй провінції.")],
-        "foot": "OkSita не пов’язаний з DGT чи іншими державними органами.", "chat": "Чат", "offices": "Офіси DGT",
+        "foot": "OkSita не пов’язаний з DGT чи іншими державними органами.", "chat": "Чат", "offices": "Офіси DGT", "pas": "Черга ДП «Документ»",
     },
     "ru": {
         "title": "Cita previa DGT: уведомление в Telegram о свободных датах · OkSita",
@@ -144,7 +145,7 @@ T = {
                                            "но объясняет порядок."),
                  ("А запись в Extranjería (TIE, NIE)?", "Тот сайт защищён от ботов, поэтому мы его не проверяем. Зато люди сами дают сигнал, "
                                                        "когда видят записи в твоей провинции.")],
-        "foot": "OkSita не связан с DGT и другими государственными органами.", "chat": "Чат", "offices": "Офисы DGT",
+        "foot": "OkSita не связан с DGT и другими государственными органами.", "chat": "Чат", "offices": "Офисы DGT", "pas": "Очередь ДП «Документ»",
     },
     "en": {
         "title": "DGT cita previa: Telegram alerts when appointments open · OkSita",
@@ -259,6 +260,11 @@ def numbers() -> dict:
             "p7": premium.plan_price("p7")}
 
 
+def gsc_meta() -> str:
+    code = store.setting("gsc")
+    return f'<meta name="google-site-verification" content="{esc(code)}">' if code else ""
+
+
 def bot(start: str) -> str:
     return f"https://t.me/{config.BOT_USERNAME}?start={start}"
 
@@ -294,7 +300,7 @@ def render(lang: str) -> str:
     start = f"web-{lang}"
     return f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(t['title'])}</title>
-<meta name="description" content="{esc(t['desc'])}"><link rel="canonical" href="{base}{PATHS[lang]}">{alt}
+<meta name="description" content="{esc(t['desc'])}"><link rel="canonical" href="{base}{PATHS[lang]}">{alt}{gsc_meta()}
 <link rel="alternate" hreflang="x-default" href="{base}/"><meta name="theme-color" content="#ff5a36">
 <meta property="og:type" content="website"><meta property="og:title" content="{esc(t['title'])}"><meta property="og:description" content="{esc(t['desc'])}">
 <meta property="og:url" content="{base}{PATHS[lang]}"><meta property="og:image" content="{base}/static/cover.png"><meta name="twitter:card" content="summary_large_image">
@@ -319,7 +325,7 @@ def render(lang: str) -> str:
 {review_block}
 <div class="school"><div><h2>🏫 {esc(t['school'])}</h2><p>{esc(t['school_text'])}</p></div><a class="btn" href="{bot('school-web')}">{esc(t['school_btn'])}</a></div>
 <section class="block" id="faq"><h2>{esc(t['faq'])}</h2>{''.join(f'<details><summary>{esc(q)}</summary><p>{esc(fmt(a))}</p></details>' for q, a in t['faqs'])}</section>
-</main><footer class="wrap"><nav><a href="{bot(start)}">Telegram</a><a href="/dgt">🏢 {esc(t['offices'])}</a><a href="{channel()}">📢 {esc(store.setting('channel'))}</a>{chat_link(t)}</nav>
+</main><footer class="wrap"><nav><a href="{bot(start)}">Telegram</a><a href="/dgt">🏢 {esc(t['offices'])}</a>{'<a href="/pasport">🛂 ' + esc(t['pas']) + '</a>' if t.get('pas') else ''}<a href="{channel()}">📢 {esc(store.setting('channel'))}</a>{chat_link(t)}</nav>
 <p>{esc(t['foot'])} © {time.strftime('%Y')} OkSita</p></footer></body></html>"""
 
 
@@ -339,18 +345,23 @@ def slugs() -> Dict[str, str]:
     return {slug(cid): cid for cid in dgt.CENTROS}
 
 
-def shell(title: str, desc: str, path: str, body: str, ld: List[dict]) -> str:
+NAV = {"es": ("/", "Inicio", "Oficinas", "Todas las oficinas", '<a href="/uk">UK</a><a href="/ru">RU</a>'),
+       "uk": ("/uk", "Головна", "Офіси DGT", "Усі офіси DGT", '<a href="/pasport">Паспорт</a>')}
+
+
+def shell(title: str, desc: str, path: str, body: str, ld: List[dict], lang: str = "es") -> str:
     base = config.PUBLIC_URL or ""
+    home, home_label, short, offices, extra = NAV[lang]
     scripts = "".join(f'<script type="application/ld+json">{json.dumps(x, ensure_ascii=False)}</script>' for x in ld)
-    return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
+    return f"""<!doctype html><html lang="{lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)}</title>
-<meta name="description" content="{esc(desc)}"><link rel="canonical" href="{base}{path}"><meta name="theme-color" content="#ff5a36">
+<meta name="description" content="{esc(desc)}"><link rel="canonical" href="{base}{path}"><meta name="theme-color" content="#ff5a36">{gsc_meta()}
 <meta property="og:type" content="website"><meta property="og:title" content="{esc(title)}"><meta property="og:description" content="{esc(desc)}">
 <meta property="og:url" content="{base}{path}"><meta property="og:image" content="{base}/static/cover.png"><meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/app/icon.png"><style>{CSS}</style>{scripts}</head><body>
-<header><div class="wrap bar"><a class="logo" href="/"><i>Ok</i><span><b>Ok</b>Sita</span></a><nav class="langs"><a href="/dgt">Oficinas</a><a href="/uk">UK</a><a href="/ru">RU</a></nav></div></header>
-<main class="wrap">{body}</main><footer class="wrap"><nav><a href="/">Inicio</a><a href="/dgt">🏢 Todas las oficinas</a><a href="{bot('web-dgt')}">Telegram</a>{chat_link(T['es'])}</nav>
-<p>{esc(T['es']['foot'])} © {time.strftime('%Y')} OkSita</p></footer></body></html>"""
+<header><div class="wrap bar"><a class="logo" href="{home}"><i>Ok</i><span><b>Ok</b>Sita</span></a><nav class="langs"><a href="/dgt">{short}</a>{extra}</nav></div></header>
+<main class="wrap">{body}</main><footer class="wrap"><nav><a href="{home}">{home_label}</a><a href="/dgt">🏢 {offices}</a><a href="{bot('web-' + lang)}">Telegram</a>{chat_link(T[lang])}</nav>
+<p>{esc(T[lang]['foot'])} © {time.strftime('%Y')} OkSita</p></footer></body></html>"""
 
 
 def office_page(cid: str) -> str:
@@ -404,18 +415,58 @@ def offices_page() -> str:
                  "Las 68 Jefaturas y Oficinas de Tráfico: cuándo salen citas libres en cada una y aviso gratis en Telegram.", "/dgt", body, [])
 
 
+# ---------- паспорт Украины: «черга ДП Документ Мадрид» ----------
+
+PASSPORT_ADDR = {"28": "Blvr. de José Prat, 35 (Vicálvaro)", "08": "Av. del Segle XXI, 6 (Viladecans)", "46": "Av. de Pius XII, 2, local 117"}
+PASSPORT_CITY = {"28": "Мадрид", "08": "Барселона", "46": "Валенсія"}
+
+
+def passport_page() -> str:
+    cards = "".join(f'<div class="feat"><span>🛂</span><h3>{PASSPORT_CITY[p]}</h3><p>{esc(PASSPORT_ADDR[p])}<br>'
+                    f'<a href="{esc(link)}" rel="nofollow">Електронна черга ↗</a></p></div>' for p, (_, link) in signals.PASSPORT.items())
+    faqs = [("Коли з’являються талони?", "У випадковий час: так вирішив сам Паспортний сервіс, щоб талони не перепродували. "
+                                          "Однієї години немає, тому допомагають сигнали від тих, хто теж чекає."),
+            ("Чи можна прийти без запису?", "Зазвичай без запису приймають людей з інвалідністю, вагітних, літніх і опікуна з дитиною до 3 років. "
+                                            "Точні правила дивись на сторінці свого центру."),
+            ("Що потрібно для запису?", "Сайт черги може попросити Дія.Підпис або BankID, а код підтвердження приходить SMS або у Viber. "
+                                        "Приходь за 10 хвилин і показуй оригінальне підтвердження: скриншоти не приймають."),
+            ("Чому бот сам не перевіряє сайт?", "Сайт черги закритий від автоматичних перевірок. Обходити захист ми не будемо, "
+                                                "тому талони помічають люди: один натиснув «бачу талони» — інші одразу отримали сигнал."),
+            ("Скільки це коштує?", f"Сигнали безкоштовні: {signals.FREE_SUBS} центр без оплати, з Premium — до {signals.TOP_SUBS} сигналів. "
+                                   "Сам запис теж безкоштовний: нікому не плати за талон."),
+            ("Як записатися до консульства?", "Посольство в Мадриді й генконсульство в Барселоні приймають лише через е-Консул. "
+                                              "Якщо вільного часу немає, стань у лист очікування в е-Консулі: система надішле email, коли з’явиться місце.")]
+    faq_ld = {"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [
+        {"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": a}} for q, a in faqs]}
+    body = f"""<section class="hero" style="grid-template-columns:1fr"><div><span class="badge">Мадрид · Барселона · Валенсія</span>
+<h1>Черга <em>ДП «Документ»</em> в Іспанії</h1>
+<p class="lead">Талони в Паспортний сервіс з’являються у випадковий час і швидко зникають. В OkSita ті, хто чекає, діляться сигналом: один побачив талони — інші одразу отримують повідомлення в Telegram.</p>
+<div class="ctas"><a class="btn main" href="{bot('passport-web')}">✈️ Отримувати сигнали</a><a class="btn alt" href="{channel()}">📢 Канал OkSita</a></div>
+<p class="note">Безкоштовно · бот не просить паспортні дані · запис лише на офіційному сайті</p></div></section>
+<section class="block"><h2>Три центри в Іспанії</h2><div class="feats">{cards}</div>
+<p class="small">Дані на листопад 2026. Адресу й вихідні перевіряй на сторінці центру перед візитом.</p></section>
+<section class="block"><h2>Як працюють сигнали</h2><div class="steps">
+<div class="step"><i>1</i><h3>Обери центр</h3><p>У боті: 🇺🇦 Для українців → 🛂 Паспорт України → 🔔 біля свого міста.</p></div>
+<div class="step"><i>2</i><h3>Хтось бачить талони</h3><p>Людина на сайті черги бачить вільні місця й натискає «🟢 Я бачу талони».</p></div>
+<div class="step"><i>3</i><h3>Ти отримуєш сигнал</h3><p>Одразу приходить повідомлення з кнопкою на офіційну чергу твого центру.</p></div></div></section>
+<section class="block"><h2>Питання</h2>{''.join(f'<details><summary>{esc(q)}</summary><p>{esc(a)}</p></details>' for q, a in faqs)}</section>"""
+    return shell("Черга ДП «Документ» в Іспанії: Мадрид, Барселона, Валенсія · OkSita",
+                 "Як записатися в Паспортний сервіс ДП «Документ» у Мадриді, Барселоні та Валенсії і отримувати в Telegram сигнал, "
+                 "коли люди бачать вільні талони. Безкоштовно.", "/pasport", body, [faq_ld], "uk")
+
+
 def page(path: str) -> Optional[Tuple[bytes, str]]:
     """Готовая страница по адресу или None. Собираем раз в 10 минут."""
     lang = next((code for code, p in PATHS.items() if p == path), None)
-    if path == "/dgt" or path.startswith("/dgt/"):
-        cid = slugs().get(path[5:]) if path != "/dgt" else None
-        if path != "/dgt" and not cid:
+    if path in ("/dgt", "/pasport") or path.startswith("/dgt/"):
+        cid = slugs().get(path[5:]) if path.startswith("/dgt/") else None
+        if path.startswith("/dgt/") and not cid:
             return None
-        lang = path  # в кэше страницы офисов лежат по своему адресу
-        hit = _pages.get(lang)
+        hit = _pages.get(path)  # страницы офисов и паспорта лежат в кэше по своему адресу
         if not hit or time.time() - hit[0] > TTL:
-            hit = (time.time(), (office_page(cid) if cid else offices_page()).encode())
-            _pages[lang] = hit
+            build = office_page(cid) if cid else offices_page() if path == "/dgt" else passport_page()
+            hit = (time.time(), build.encode())
+            _pages[path] = hit
         return hit[1], "text/html; charset=utf-8"
     if path == "/robots.txt":
         return f"User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /app\nSitemap: {config.PUBLIC_URL}/sitemap.xml\n".encode(), "text/plain; charset=utf-8"
@@ -423,7 +474,7 @@ def page(path: str) -> Optional[Tuple[bytes, str]]:
         urls = "".join(f"<url><loc>{config.PUBLIC_URL}{p}</loc>"
                        + "".join(f'<xhtml:link rel="alternate" hreflang="{c}" href="{config.PUBLIC_URL}{q}"/>' for c, q in PATHS.items())
                        + "</url>" for p in PATHS.values())
-        urls += "".join(f"<url><loc>{config.PUBLIC_URL}{p}</loc></url>" for p in ["/dgt"] + [f"/dgt/{x}" for x in sorted(slugs())])
+        urls += "".join(f"<url><loc>{config.PUBLIC_URL}{p}</loc></url>" for p in ["/dgt", "/pasport"] + [f"/dgt/{x}" for x in sorted(slugs())])
         return (f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
                 f'xmlns:xhtml="http://www.w3.org/1999/xhtml">{urls}</urlset>').encode(), "application/xml; charset=utf-8"
     if not lang:

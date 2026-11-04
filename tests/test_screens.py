@@ -129,6 +129,7 @@ class Screens(unittest.TestCase):
                 "consulate": views.signal_alert(chat, dict(sig, doc="con", province="28")),
                 "pz": views.passport_view(chat, "заметка"), "pk": views.consul_view(chat, "заметка"),
                 "pick_pas": views.place_pick(chat, "pas"), "pick_con": views.place_pick(chat, "con"), "window": views.window_alert(chat),
+                "spain": views.spain_view(chat), "types_madrid": views.doc_types(chat, "s", "28"),
             }.items():
                 check(self, screen, f"{name}/{chat}")
             for status in ("ok", "merged", "daily", "muted"):
@@ -152,7 +153,7 @@ class Screens(unittest.TestCase):
             "office": admin.office_card("486", "CYV", "заметка"), "money": admin.money("заметка"), "promos": admin.promos_view(),
             "promo": admin.promo_card("CODE3", "заметка"), "tasks": admin.tasks_view(), "ads": admin.ads_view(),
             "segments": admin.broadcast_segments(), "prompt": admin.broadcast_prompt("all"), "settings": admin.settings(),
-            "journal": admin.journal_view("all"), "step0": admin.promo_step([]), "step1": admin.promo_step(["72"]), "step2": admin.promo_step(["72", "10"]),
+            "journal": admin.journal_view("all"), "site": admin.site_admin("заметка"), "step0": admin.promo_step([]), "step1": admin.promo_step(["72"]), "step2": admin.promo_step(["72", "10"]),
         }.items():
             check(self, screen, name)
         check(self, admin.task_card(store.tasks()[0]["id"], "заметка"), "task")

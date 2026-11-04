@@ -16,6 +16,7 @@ os.environ.setdefault("SQLITE_PATH", tempfile.mkstemp(suffix=".db")[1])
 sys.path.insert(0, str(ROOT))
 
 import admin  # noqa: E402
+import agenda  # noqa: E402
 import board  # noqa: E402
 import bot  # noqa: E402
 import checker  # noqa: E402
@@ -428,6 +429,77 @@ class UkrainianDocs(Base):
         kb = json.dumps(views.window_alert(chat)[1])
         self.assertIn("madrid.pasport.org.ua", kb)
         self.assertNotIn(signals.ICP_URL, kb)
+
+
+class SpainExtras(Base):
+    """Календарь визита, новые сигналы, справочник, страница про паспорт, код Google, заявки автошкол."""
+
+    def booked(self, chat, time_="10:30"):
+        self.user(chat, "uk")
+        sub, _ = store.add_sub(chat, "565", "EXM", "Exámenes")
+        store.update_sub(sub["id"], booked_date="2030-01-07", booked_time=time_, paused=1)
+        return store.get_sub(sub["id"])
+
+    def test_google_calendar_link(self):
+        link = agenda.google_link(self.booked(6401), "uk")
+        self.assertIn("dates=20300107T103000%2F20300107T113000", link)
+        self.assertIn("ctz=Europe%2FMadrid", link)
+        whole = agenda.google_link(self.booked(6402, None), "uk")
+        self.assertIn("dates=20300107%2F20300108", whole)
+
+    def test_ics_is_signed_and_valid(self):
+        sub = self.booked(6403)
+        link = agenda.ics_link(sub)
+        sid, chat, sig = re.search(r"/cal/(\d+)/(-?\d+)/([0-9a-f]{16})\.ics$", link).groups()
+        body = agenda.ics(int(sid), int(chat), sig)
+        self.assertIn("BEGIN:VEVENT", body)
+        self.assertIn("DTSTART:20300107T093000Z", body)  # 10:30 в Мадриде зимой = 09:30 UTC
+        self.assertTrue(all(len(line.encode()) <= 75 for line in body.split("\r\n")))
+        self.assertIsNone(agenda.ics(int(sid), int(chat) + 1, sig))
+        self.assertIsNone(agenda.ics(int(sid), int(chat), "0" * 16))
+
+    def test_booked_card_has_calendar_buttons(self):
+        kb = json.dumps(views.booked_card(self.booked(6404))[1])
+        self.assertIn("calendar.google.com", kb)
+        self.assertIn("/cal/", kb)
+
+    def test_new_signal_types(self):
+        self.assertEqual(signals.booking_url("29", "ss"), signals.OTHER_URLS["ss"])
+        self.assertEqual(signals.booking_url("29", "sep"), signals.OTHER_URLS["sep"])
+        self.assertIsNone(signals.booking_url("29", "pad"))
+        self.assertTrue(signals.valid("29", "pad"))
+
+    def test_spain_section_opens(self):
+        chat = self.user(6405, "es")
+        bot.route_callback({"from": {"id": chat}}, chat, 9, "sp")
+        self.assertIn("Útil en España", self.shown()[-1]["text"])
+        self.assertIn("clave.gob.es", json.dumps(self.shown()[-1]["kb"]))
+
+    def test_passport_page_and_google_code(self):
+        landing._pages.clear()
+        body = landing.page("/pasport")[0].decode()
+        self.assertIn('<html lang="uk">', body)
+        self.assertIn("valencia.pasport.org.ua", body)
+        self.assertIn("start=passport-web", body)
+        for block in re.findall(r'<script type="application/ld\+json">(.*?)</script>', body):
+            json.loads(block)
+        self.assertNotIn("google-site-verification", body)
+        store.set_setting("gsc", "abcDEF123_-abcDEF123_-xyz")
+        landing._pages.clear()
+        try:
+            for path in ("/", "/uk", "/dgt", "/pasport"):
+                self.assertIn('content="abcDEF123_-abcDEF123_-xyz"', landing.page(path)[0].decode())
+        finally:
+            store.set_setting("gsc", "")
+            landing._pages.clear()
+        self.assertIn("/pasport</loc>", landing.page("/sitemap.xml")[0].decode())
+
+    def test_school_request_survives_restart(self):
+        schools.add_request(6406, "Autoescuela Sol, Málaga")
+        self.assertIn("6406", store.setting("school_requests"))
+        self.assertEqual(schools.pop_request(6406), "Autoescuela Sol, Málaga")
+        self.assertIsNone(schools.pop_request(6406))
+
 
 if __name__ == "__main__":
     unittest.main()

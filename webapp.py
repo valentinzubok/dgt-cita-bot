@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, parse_qsl, urlsplit
 
 import actions
 import ads
+import agenda
 import board
 import channel
 import checker
@@ -502,6 +503,13 @@ class Handler(BaseHTTPRequestHandler):
         site = landing.page(path)
         if site:
             return self._page(*site)
+        cal = re.fullmatch(r"/cal/(\d{1,9})/(-?\d{1,20})/([0-9a-f]{16})\.ics", path)
+        if cal:
+            body = agenda.ics(int(cal.group(1)), int(cal.group(2)), cal.group(3))
+            if not body:
+                return self._send(404)
+            return self._send(200, body.encode(), "text/calendar; charset=utf-8",
+                              {"Content-Disposition": f'inline; filename="cita-dgt-{cal.group(1)}.ics"', "Cache-Control": "no-store"})
         poster = re.fullmatch(r"/s/([A-Za-z0-9_-]{3,32})", path)
         if poster:
             body = schools.poster(poster.group(1))

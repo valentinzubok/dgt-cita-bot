@@ -70,6 +70,7 @@ THEMES = {
     "friends": ("linear-gradient(135deg,#047A62 0%,#0FB78A 55%,#6EE7B7 100%)", "#FFE34D", "#047A62"),
     "school": ("linear-gradient(135deg,#FF2D55 0%,#FF6B2C 50%,#7A1FA2 100%)", "#FFE34D", "#FF2D55"),
     "app": ("linear-gradient(135deg,#0B3C8C 0%,#1C7CE0 55%,#2AABEE 100%)", "#FFE34D", "#1C7CE0"),
+    "passport": ("linear-gradient(135deg,#0A2A6B 0%,#1652C8 58%,#2E7CF6 100%)", "#FFD60A", "#1652C8"),
 }
 
 TEXT = {
@@ -136,6 +137,14 @@ TEXT.update({
                    chips=["💼 Вакансия", "📣 Услуга", "📸 С фото"], cta="Подать · <i>@oksitabot</i>",
                    post=("💼 Вакансия", "Ищем повара в кафе в Малаге. Полный день, договор. Пишите @cafe_malaga")),
     },
+    "passport": {
+        "uk": dict(h="Черга ДП «Документ»?<br><b>Сигнал про талони</b>", sub="Хтось побачив вільні талони — тобі одразу приходить сигнал",
+                   chips=["🛂 Мадрид", "🛂 Барселона", "🛂 Валенсія"], cta="Паспорт · <i>@oksitabot</i>",
+                   sig=("🛂 Паспорт України · Madrid", "🟢 Бачать талони · щойно")),
+        "ru": dict(h="Очередь ДП «Документ»?<br><b>Сигнал о талонах</b>", sub="Кто-то увидел свободные талоны — тебе сразу приходит сигнал",
+                   chips=["🛂 Мадрид", "🛂 Барселона", "🛂 Валенсия"], cta="Паспорт · <i>@oksitabot</i>",
+                   sig=("🛂 Паспорт Украины · Madrid", "🟢 Видят талоны · только что")),
+    },
 })
 
 
@@ -176,7 +185,7 @@ def art(kind: str, lang: str, t: dict) -> str:
                        f'<span class="ok">{CHECK}</span><span>{item}</span></div>' for i, item in enumerate(t["list"]))
         return (f'<div class="card" style="left:40px;top:20px;width:480px;padding:18px 30px">{rows}</div>'
                 '<div class="badge" style="left:420px;top:-10px;width:120px;height:120px;background:#FFD60A;color:#2B124C;font-size:64px">5</div>')
-    if kind == "docs":
+    if kind in ("docs", "passport"):
         a, b = t["sig"]
         return (f'<div style="position:absolute;left:60px;top:10px">{CARD}</div>'
                 '<svg style="position:absolute;left:0;top:250px" width="560" height="330"><g fill="none" stroke="#FFD60A" stroke-opacity=".5" stroke-width="5">'
@@ -226,8 +235,8 @@ def page(kind: str, lang: str, layout: str) -> str:
 
 
 CHANNEL = {"post_how": "hero", "post_trial": "trial", "post_radar": "radar", "post_tips": "tips", "post_docs": "docs",
-           "post_jobs": "jobs", "post_friends": "friends", "post_school": "school", "post_app": "app"}
-PROMOS = ("hero", "trial", "radar", "docs", "tips", "jobs", "school", "app")
+           "post_jobs": "jobs", "post_friends": "friends", "post_school": "school", "post_app": "app", "post_passport": "passport"}
+PROMOS = ("hero", "trial", "radar", "docs", "tips", "jobs", "school", "app", "passport")
 
 
 def main(only):

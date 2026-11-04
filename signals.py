@@ -1,4 +1,4 @@
-"""Сигналы о записях на документы: Extranjería, паспорт, консульство.
+"""Сигналы о записях на документы: Extranjería, паспорт, консульство, padrón, Seguridad Social, SEPE.
 Эти сайты закрыты капчей и антибот-защитой, бот их не проверяет. Места замечают сами пользователи и нажимают кнопку.
 Текста от людей здесь нет: сигнал — это только провинция и тип документа, поэтому через него не разослать мошенническую ссылку."""
 from __future__ import annotations
@@ -39,6 +39,9 @@ DOCS = {
     "ext": ("📄", "Другое в Extranjería", "Інше в Extranjería", "Otros en Extranjería", "Other at Extranjería"),
     "pas": ("🛂", "Паспорт Украины", "Паспорт України", "Pasaporte de Ucrania", "Ukrainian passport"),
     "con": ("🏛", "Консульство Украины", "Консульство України", "Consulado de Ucrania", "Ukrainian consulate"),
+    "pad": ("🏠", "Прописка (padrón)", "Прописка (padrón)", "Empadronamiento", "Padrón registration"),
+    "ss": ("🏥", "Seguridad Social", "Seguridad Social", "Seguridad Social", "Social Security"),
+    "sep": ("💼", "SEPE: пособие и работа", "SEPE: допомога й робота", "SEPE: paro y empleo", "SEPE: benefits and jobs"),
 }
 ICP_DOCS = ("ukr", "tie", "rec", "nie", "asy", "ext")  # записываются на сайте Extranjería
 # Паспортний сервіс ДП «Документ» в Испании: провинция → (город, страница очереди). Сайт закрыт Cloudflare от ботов, бот его не открывает
@@ -49,6 +52,10 @@ PASSPORT = {
 }
 CONSULATES = {"28": "Madrid", "08": "Barcelona"}  # посольство и генконсульство, запись только через е-Консул
 CONSUL_URL = "https://e-consul.gov.ua/"
+OTHER_URLS = {  # официальные страницы записи; у padrón своя в каждом городе, поэтому ссылки нет
+    "ss": "https://sede.seg-social.gob.es/wps/portal/sede/sede/Ciudadanos/CitaPrevia",
+    "sep": "https://sede.sepe.gob.es/portalSede/procedimientos-y-servicios/personas/proteccion-por-desempleo/cita-previa",
+}
 
 
 def valid(province: str, doc: str) -> bool:
@@ -63,7 +70,7 @@ def booking_url(province: str, doc: str) -> Optional[str]:
         return ICP_URL
     if doc == "pas":
         return PASSPORT[province][1] if province in PASSPORT else None
-    return CONSUL_URL if doc == "con" else None
+    return CONSUL_URL if doc == "con" else OTHER_URLS.get(doc)
 
 
 def places(doc: str) -> dict:

@@ -19,6 +19,7 @@ import checker
 import config
 import dgt
 import group
+import landing
 import posts
 import premium
 import reviews
@@ -471,7 +472,25 @@ def channel_admin(note: str = "") -> Tuple[str, dict]:
         [btn(f"{on('gate')} Ботом — только с подпиской на канал", "ad:gk")],
         [btn("💬 Группа канала" + (f" · {group.info().get('title')}" if group.info().get("id") else " · не найдена"), "ad:gg")],
         [btn("📌 Опубликовать и закрепить пост о канале", "ad:cw")],
+        [btn("🌐 Сайт и Google", "ad:ws")],
         [url("📢 Открыть канал", channel.link()), BACK],
+    ])
+
+
+def site_admin(note: str = "") -> Tuple[str, dict]:
+    base = config.PUBLIC_URL
+    code = store.setting("gsc")
+    text = (f"🌐 <b>Сайт</b> · {esc(base)}\n\n<blockquote>Главная на 4 языках, {len(dgt.CENTROS)} страниц офисов DGT (/dgt/…), "
+            f"страница про паспорт (/pasport), sitemap.xml.\nGoogle Search Console: <b>{'код стоит' if code else 'не подтверждён'}</b></blockquote>\n"
+            "<b>Как подключить Google</b>\n1. search.google.com/search-console → «Добавить ресурс» → «Префикс URL» → адрес сайта.\n"
+            "2. Способ «Тег HTML» → скопируй тег целиком и пришли сюда кнопкой ниже.\n"
+            "3. В Search Console нажми «Подтвердить», потом «Файлы Sitemap» → <code>sitemap.xml</code>."
+            + (f"\n\n{note}" if note else ""))
+    return text, ikb([
+        [btn("✏️ Код Google" + (" · заменить" if code else ""), "ad:wg", "primary")] + ([btn("🗑 Убрать код", "ad:w0")] if code else []),
+        [url("🔎 Search Console", "https://search.google.com/search-console"), url("🗺 sitemap.xml", f"{base}/sitemap.xml")],
+        [url("🏢 Офисы", f"{base}/dgt"), url("🛂 Паспорт", f"{base}/pasport")],
+        [btn("⬅️ Канал", "ad:cl")],
     ])
 
 
@@ -1032,6 +1051,16 @@ def handle_input(msg: dict) -> bool:
         school = schools.create(name, city)
         checker.event(f"🏫 Автошкола: {name}, код {school['code']}", "user")
         tg.show(chat, *school_card(school["id"], "✅ Готово. Открой плакат или пришли QR сюда, чтобы переслать автошколе."), mid=screen)
+    elif kind == "gsc_set":
+        found = re.search(r'content="([A-Za-z0-9_-]{20,100})"', text) or re.fullmatch(r"\s*([A-Za-z0-9_-]{20,100})\s*", text)
+        if not found:
+            tg.show(chat, "Пришли тег целиком: <code>&lt;meta name=\"google-site-verification\" content=\"…\" /&gt;</code>",
+                    ikb([[btn("✖️ Отмена", "ad:ws")]]), mid=screen)
+            return True
+        pending.pop(chat, None)
+        store.set_setting("gsc", found.group(1))
+        landing._pages.clear()
+        tg.show(chat, *site_admin("✅ Код стоит на сайте. Теперь нажми «Подтвердить» в Search Console."), mid=screen)
     elif kind == "group_set":
         value = text.strip()
         if not re.fullmatch(r"@[A-Za-z0-9_]{5,32}|-100\d{6,14}", value):
@@ -1163,9 +1192,9 @@ def on_callback(chat: int, mid: int, data: str) -> Optional[str]:
                 ikb([[btn("✖️ Отмена", "ad:hl")]]), mid=mid)
     elif kind == "hn" and rest.lstrip("-").isdigit():
         target = int(rest)
-        request = schools.requests.pop(target, None)
+        request = schools.pop_request(target)
         if request is None:
-            return "Заявка уже обработана или потерялась при перезапуске — добавь вручную"
+            return "Заявка уже обработана — если нужно, добавь автошколу вручную"
         name, city = schools.parse_request(request)
         school = schools.create(name, city, target)
         sent = send_school_kit(target, school, views.lang_of(target))
@@ -1215,6 +1244,16 @@ def on_callback(chat: int, mid: int, data: str) -> Optional[str]:
         tg.show(chat, *channel_admin(), mid=mid)
     elif kind == "gg":
         tg.show(chat, *group_admin(), mid=mid)
+    elif kind == "ws":
+        tg.show(chat, *site_admin(), mid=mid)
+    elif kind == "wg":
+        pending[chat] = {"kind": "gsc_set", "screen": mid}
+        tg.show(chat, "✏️ Пришли тег из Search Console (способ «Тег HTML») целиком или только значение content.",
+                ikb([[btn("✖️ Отмена", "ad:ws")]]), mid=mid)
+    elif kind == "w0":
+        store.set_setting("gsc", "")
+        landing._pages.clear()
+        tg.show(chat, *site_admin("🗑 Код убран"), mid=mid)
     elif kind == "gz":
         store.set_setting("group_guard", 0 if store.setting("group_guard") else 1)
         tg.show(chat, *group_admin(), mid=mid)

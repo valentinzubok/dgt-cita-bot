@@ -493,7 +493,7 @@ def dashboard(chat: int, name: str = "", next_check: Optional[int] = None, note:
                               "🛂 Documents"), "dc"), btn(tx(lang, "🇺🇦 Для украинцев", "🇺🇦 Для українців",
                                                                                  "🇺🇦 Para ucranianos",
                                                                                  "🇺🇦 For Ukrainians"), "ua")])
-    rows.append([btn(board_btn(lang), "jb")])
+    rows.append([btn(board_btn(lang), "jb"), btn(tx(lang, "📚 Полезное", "📚 Корисне", "📚 Útil", "📚 Useful"), "sp")])
     if is_admin(chat):
         rows.append([btn("🛠 Админ-панель", "ad")])
     return "\n".join(lines), ikb(rows)
@@ -994,6 +994,12 @@ def booked_card(sub: dict, note: str = "") -> Tuple[str, dict]:
     share = url(tx(lang, "🎁 Рассказать другу", "🎁 Розповісти другові", "🎁 Contárselo a un amigo", "🎁 Tell a friend"),
                 rewards.share_link(sub["chat"], invite_text(lang)))
     rows = [[share]]
+    if not past:
+        import agenda  # agenda берёт тексты отсюда
+        cal = [url(tx(lang, "📅 Google Календарь", "📅 Google Календар", "📅 Google Calendar", "📅 Google Calendar"), agenda.google_link(sub, lang))]
+        if agenda.ics_link(sub):
+            cal.append(url(tx(lang, "📅 iPhone / Outlook", "📅 iPhone / Outlook", "📅 iPhone / Outlook", "📅 iPhone / Outlook"), agenda.ics_link(sub)))
+        rows.insert(0, cal)
     if store.setting("channel_proof") and store.setting("channel") and not store.task_is_done(f"proof:{sid}", sub["chat"]):
         rows.append([btn(tx(lang, "📣 Рассказать в канале — анонимно", "📣 Розповісти в каналі — анонімно",
                                   "📣 Contarlo en el canal (anónimo)", "📣 Share in the channel (anonymous)"), f"pf:{sid}")])
@@ -1377,13 +1383,17 @@ def docs_view(chat: int, note: str = "") -> Tuple[str, dict]:
     lines = [tx(lang, "🛂 <b>Документы</b> · сигналы от людей", "🛂 <b>Документи</b> · сигнали від людей",
                       "🛂 <b>Documentos</b> · señales de usuarios",
                       "🛂 <b>Documents</b> · signals from people"), "",
-             tx(lang, "Записи на TIE, NIE, паспорт и в консульство закрыты от автоматических проверок, поэтому бот их не смотрит. "
+             tx(lang, "Записи на TIE, NIE, паспорт, в консульство, на padrón, в Seguridad Social и SEPE закрыты от автоматических проверок "
+                      "или требуют личных данных, поэтому бот их не смотрит. "
                       "Места замечают сами пользователи: один увидел запись и нажал кнопку, остальные сразу получили сигнал.",
-                "Записи на TIE, NIE, паспорт і в консульство закриті від автоматичних перевірок, тому бот їх не дивиться. "
+                "Записи на TIE, NIE, паспорт, до консульства, на padrón, у Seguridad Social і SEPE закриті від автоматичних перевірок "
+                "або потребують особистих даних, тому бот їх не дивиться. "
                 "Місця помічають самі користувачі: один побачив запис і натиснув кнопку, решта одразу отримали сигнал.",
-                      "Las citas de TIE, NIE, pasaporte y consulado están cerradas a las revisiones automáticas, por eso el bot no las mira. "
+                      "Las citas de TIE, NIE, pasaporte, consulado, padrón, Seguridad Social y SEPE están cerradas a las revisiones automáticas "
+                      "o piden datos personales, por eso el bot no las mira. "
                       "Las plazas las detectan los propios usuarios: uno ve una cita y pulsa el botón, y los demás reciben la señal al momento.",
-                      "TIE, NIE, passport and consulate appointments are closed to automated checks, so the bot doesn't look at them. "
+                      "TIE, NIE, passport, consulate, padrón, Social Security and SEPE appointments are closed to automated checks "
+                      "or need personal data, so the bot doesn't look at them. "
                       "Users spot the slots themselves: one person sees an appointment and taps the button, and everyone else gets a signal right away."), ""]
     if mine:
         items = []
@@ -1594,6 +1604,62 @@ def ukraine_view(chat: int) -> Tuple[str, dict]:
                       "🪪 Canje de permiso: DGT",
                       "🪪 Licence canje: DGT"), UA_CANJE), url("🌐 Ucrania Urgente", UA_GUIDE)],
         [home_btn(lang)],
+    ])
+
+
+# ---------- полезное в Испании: официальные сайты ----------
+
+SPAIN_LINKS = {  # проверены 05.11.2026
+    "clave": "https://clave.gob.es/registro",
+    "importass": "https://portal.seg-social.gob.es/wps/portal/importass/importass/",
+    "aeat": "https://sede.agenciatributaria.gob.es/Sede/procedimientoini/GC29.shtml",
+    "tasa": "https://sede.policia.gob.es/Tasa790_012/",
+    "ucrania": "https://ucraniaurgente.inclusion.gob.es/",
+}
+
+
+def spain_view(chat: int) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    text = tx(lang,
+              "📚 <b>Полезное в Испании</b> · официальные сайты\n\n"
+              "🏠 <b>Padrón</b> — прописка в своём Ayuntamiento. Нужна для врача, школы, TIE и многих других бумаг. Запись — на сайте своего города.\n\n"
+              "🔑 <b>Cl@ve</b> — вход в госуслуги онлайн: налоги, Seguridad Social, DGT. Зарегистрироваться можно онлайн или в офисе.\n\n"
+              "🏥 <b>Seguridad Social</b> — номер NUSS и справка vida laboral онлайн в Import@ss, запись в офис.\n\n"
+              "💼 <b>SEPE</b> — пособие по безработице. Встать на учёт как ищущий работу — в службе занятости своей автономии.\n\n"
+              "🧾 <b>Hacienda</b> — налоги и декларация renta, запись на помощь.\n\n"
+              "🪪 <b>Tasa 790-012</b> — пошлина за TIE и NIE, платится онлайн или в банке.\n\n"
+              "<i>Нет свободных мест на padrón, в Seguridad Social или SEPE? Включи сигнал в 🛂 Документах.</i>",
+              "📚 <b>Корисне в Іспанії</b> · офіційні сайти\n\n"
+              "🏠 <b>Padrón</b> — прописка у своєму Ayuntamiento. Потрібна для лікаря, школи, TIE і багатьох інших паперів. Запис — на сайті свого міста.\n\n"
+              "🔑 <b>Cl@ve</b> — вхід до держпослуг онлайн: податки, Seguridad Social, DGT. Зареєструватися можна онлайн або в офісі.\n\n"
+              "🏥 <b>Seguridad Social</b> — номер NUSS і довідка vida laboral онлайн в Import@ss, запис в офіс.\n\n"
+              "💼 <b>SEPE</b> — допомога з безробіття. Стати на облік як шукач роботи — у службі зайнятості своєї автономії.\n\n"
+              "🧾 <b>Hacienda</b> — податки й декларація renta, запис на допомогу.\n\n"
+              "🪪 <b>Tasa 790-012</b> — збір за TIE і NIE, сплачується онлайн або в банку.\n\n"
+              "<i>Немає вільних місць на padrón, у Seguridad Social чи SEPE? Увімкни сигнал у 🛂 Документах.</i>",
+              "📚 <b>Útil en España</b> · webs oficiales\n\n"
+              "🏠 <b>Padrón</b>: el empadronamiento en tu Ayuntamiento. Se pide para el médico, el colegio, la TIE y muchos otros trámites. La cita, en la web de tu ciudad.\n\n"
+              "🔑 <b>Cl@ve</b>: acceso online a la administración: impuestos, Seguridad Social, DGT. Te registras online o en una oficina.\n\n"
+              "🏥 <b>Seguridad Social</b>: número de afiliación (NUSS) y vida laboral online en Import@ss, y cita en oficina.\n\n"
+              "💼 <b>SEPE</b>: prestación por desempleo. La inscripción como demandante de empleo se hace en el servicio de empleo de tu comunidad.\n\n"
+              "🧾 <b>Hacienda</b>: impuestos, declaración de la renta y cita de asistencia.\n\n"
+              "🪪 <b>Tasa 790-012</b>: la tasa de la TIE y el NIE, se paga online o en el banco.\n\n"
+              "<i>¿No hay citas de padrón, Seguridad Social o SEPE? Activa una señal en 🛂 Documentos.</i>",
+              "📚 <b>Useful in Spain</b> · official websites\n\n"
+              "🏠 <b>Padrón</b>: registering your address at your Ayuntamiento. You need it for the doctor, school, the TIE and many other procedures. Book on your city's website.\n\n"
+              "🔑 <b>Cl@ve</b>: online access to public services: taxes, Social Security, DGT. You can register online or at an office.\n\n"
+              "🏥 <b>Social Security</b>: your NUSS number and work history (vida laboral) online in Import@ss, plus office appointments.\n\n"
+              "💼 <b>SEPE</b>: unemployment benefit. Registering as a job seeker is done at your region's employment service.\n\n"
+              "🧾 <b>Hacienda</b>: taxes, the renta tax return and help appointments.\n\n"
+              "🪪 <b>Tasa 790-012</b>: the fee for the TIE and NIE, paid online or at a bank.\n\n"
+              "<i>No padrón, Social Security or SEPE appointments? Turn on a signal in 🛂 Documents.</i>")
+    return text, ikb([
+        [url("🔑 Cl@ve", SPAIN_LINKS["clave"]), url("🏥 Import@ss", SPAIN_LINKS["importass"])],
+        [url(tx(lang, "🏥 Запись: Seg. Social", "🏥 Запис: Seg. Social", "🏥 Cita Seg. Social", "🏥 Social Security booking"), signals.OTHER_URLS["ss"]),
+         url(tx(lang, "💼 Запись: SEPE", "💼 Запис: SEPE", "💼 Cita SEPE", "💼 SEPE booking"), signals.OTHER_URLS["sep"])],
+        [url("🧾 Hacienda", SPAIN_LINKS["aeat"]), url("🪪 Tasa 790-012", SPAIN_LINKS["tasa"])],
+        [url("🚗 DGT", DGT_SEDE), url("🇺🇦 Ucrania Urgente", SPAIN_LINKS["ucrania"])],
+        [btn(tx(lang, "🛂 Документы", "🛂 Документи", "🛂 Documentos", "🛂 Documents"), "dc"), home_btn(lang)],
     ])
 
 
@@ -2751,6 +2817,8 @@ def link_name(lang: str, link: str) -> str:
         return "Extranjería"
     if link == signals.CONSUL_URL:
         return tx(lang, "е-Консул", "е-Консул", "e-Konsul", "e-Consul")
+    if link in signals.OTHER_URLS.values():
+        return "Seguridad Social" if link == signals.OTHER_URLS["ss"] else "SEPE"
     city = next((city for city, page in signals.PASSPORT.values() if page == link), "")
     return tx(lang, f"ДП «Документ» {city}", f"ДП «Документ» {city}", f"Pasaportes {city}", f"Passports {city}")
 
