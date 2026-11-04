@@ -1416,6 +1416,8 @@ def docs_view(chat: int, note: str = "") -> Tuple[str, dict]:
     rows.append([url(tx(lang, "📝 Сайт записи Extranjería", "📝 Сайт запису Extranjería",
                               "📝 Web de citas de Extranjería",
                               "📝 Extranjería booking site"), signals.ICP_URL)])
+    rows.append([btn(tx(lang, "🛂 Паспорт Украины", "🛂 Паспорт України", "🛂 Pasaporte ucraniano", "🛂 Ukrainian passport"), "pz"),
+                 btn(tx(lang, "🏛 Консульство", "🏛 Консульство", "🏛 Consulado", "🏛 Consulate"), "pk")])
     rows.append([btn(tx(lang, "🇺🇦 Для украинцев", "🇺🇦 Для українців",
                               "🇺🇦 Para ucranianos",
                               "🇺🇦 For Ukrainians"), "ua"), home_btn(lang)])
@@ -1442,7 +1444,7 @@ def doc_provinces(chat: int, act: str, page: int = 0) -> Tuple[str, dict]:
 
 def doc_types(chat: int, act: str, province: str) -> Tuple[str, dict]:
     lang = lang_of(chat)
-    rows = [[btn(doc_title(lang, doc), f"dd:{act}:{province}:{doc}")] for doc in signals.DOCS]
+    rows = [[btn(doc_title(lang, doc), f"dd:{act}:{province}:{doc}")] for doc in signals.DOCS if signals.valid(province, doc)]
     rows.append([btn(tx(lang, "⬅️ Провинции", "⬅️ Провінції", "⬅️ Provincias", "⬅️ Provinces"), f"dp:{act}:0"), home_btn(lang)])
     return (f"📍 <b>{esc(signals.PROVINCES[province])}</b> · " + tx(lang, "шаг 2 из 2", "крок 2 з 2",
                                                                          "paso 2 de 2",
@@ -1463,7 +1465,7 @@ def doc_confirm(chat: int, province: str, doc: str) -> Tuple[str, dict]:
             ikb([[btn(tx(lang, "✅ Да, вижу", "✅ Так, бачу",
                                "✅ Sí, las veo",
                                "✅ Yes, I see them"), f"dr:{province}:{doc}", "success"),
-                  btn(tx(lang, "Отмена", "Скасувати", "Cancelar", "Cancel"), "dc")]]))
+                  btn(tx(lang, "Отмена", "Скасувати", "Cancelar", "Cancel"), DOC_HOME.get(doc, "dc"))]]))
 
 
 def signal_result(lang: str, status: str, sent: int = 0) -> str:
@@ -1495,10 +1497,11 @@ def signal_alert(chat: int, sig: dict, voted: bool = False) -> Tuple[str, dict]:
                        "Un usuario acaba de ver una cita. El bot no lo ha comprobado y las plazas desaparecen rápido.",
                        "A user just saw an appointment. The bot hasn't verified this, and slots disappear fast."))
     rows = []
-    if doc in signals.ICP_DOCS:
+    link = signals.booking_url(province, doc)
+    if link:
         rows.append([url(tx(lang, "📝 Открыть сайт записи", "📝 Відкрити сайт запису",
                                   "📝 Abrir la web de citas",
-                                  "📝 Open the booking site"), signals.ICP_URL, "primary")])
+                                  "📝 Open the booking site"), link, "primary")])
     if not voted:
         rows.append([btn(tx(lang, "✅ Тоже вижу", "✅ Теж бачу", "✅ Yo también", "✅ I see it too"), f"dv:{sig['id']}:1", "success"),
                      btn(tx(lang, "❌ Уже нет", "❌ Вже немає", "❌ Ya no hay", "❌ Gone already"), f"dv:{sig['id']}:0")])
@@ -1582,6 +1585,8 @@ def ukraine_view(chat: int) -> Tuple[str, dict]:
               "or are exempt.</blockquote>\n"
               "<i>Information as of October 2026; check official websites before your visit.</i>")
     return text, ikb([
+        [btn(tx(lang, "🛂 Паспорт Украины", "🛂 Паспорт України", "🛂 Pasaporte ucraniano", "🛂 Ukrainian passport"), "pz"),
+         btn(tx(lang, "🏛 Консульство", "🏛 Консульство", "🏛 Consulado", "🏛 Consulate"), "pk")],
         [btn(tx(lang, "🛂 Записи на TIE и документы", "🛂 Записи на TIE і документи",
                       "🛂 Citas de TIE y documentos",
                       "🛂 TIE appointments and documents"), "dc")],
@@ -1590,6 +1595,164 @@ def ukraine_view(chat: int) -> Tuple[str, dict]:
                       "🪪 Licence canje: DGT"), UA_CANJE), url("🌐 Ucrania Urgente", UA_GUIDE)],
         [home_btn(lang)],
     ])
+
+
+# ---------- паспорт и консульство Украины ----------
+
+DOC_HOME = {"pas": "pz", "con": "pk"}  # куда возвращаться из сигнала о паспорте и консульстве
+
+
+def _place_rows(chat: int, doc: str) -> List[list]:
+    """Строка на город: следить за сигналами и официальная страница записи."""
+    lang, mine = lang_of(chat), signals.subs_of(chat)
+    rows = []
+    for province, city in signals.places(doc).items():
+        on = (province, doc) in mine
+        rows.append([btn(f"{'✅' if on else '🔔'} {city}", f"{DOC_HOME[doc]}:{province}", "success" if on else None),
+                     url(tx(lang, "📝 Запись", "📝 Запис", "📝 Cita", "📝 Book"), signals.booking_url(province, doc))])
+    return rows
+
+
+def _watch_lines(chat: int, doc: str) -> str:
+    lang = lang_of(chat)
+    items = []
+    for province, city in signals.places(doc).items():
+        if (province, doc) not in signals.subs_of(chat):
+            continue
+        hour = signals.best_hour(province, doc)
+        items.append(tx(lang, "🔔 Слежу: ", "🔔 Стежу: ", "🔔 Sigo: ", "🔔 Watching: ") + f"<b>{esc(city)}</b>" + (tx(lang, f" · чаще всего около {hour}:00", f" · найчастіше близько {hour}:00",
+                                                       f" · sobre todo hacia las {hour}:00", f" · most often around {hour}:00")
+                                                if hour is not None else ""))
+    return "\n".join(items)
+
+
+def passport_view(chat: int, note: str = "") -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    text = tx(lang,
+              "🛂 <b>Паспорт Украины в Испании</b>\n\n"
+              "Паспорта оформляет Паспортный сервис ДП «Документ». В Испании три центра, запись только через их электронную очередь:\n"
+              "<blockquote>• <b>Madrid</b> — Blvr. de José Prat, 35 (Vicálvaro)\n"
+              "• <b>Barcelona</b> — Av. del Segle XXI, 6 (Viladecans)\n"
+              "• <b>València</b> — Av. de Pius XII, 2, local 117</blockquote>\n"
+              "<b>Как записаться</b>\n"
+              "<blockquote>• Талоны появляются в случайное время: так решил сам сервис, чтобы их не перепродавали. Одного часа нет.\n"
+              "• При записи может понадобиться Дія.Підпис или BankID, а код подтверждения приходит по SMS или в Viber — держи телефон рядом.\n"
+              "• Приходи за 10 минут и показывай оригинальное подтверждение: пересланные сообщения и скриншоты не принимают.\n"
+              "• Без записи обычно принимают людей с инвалидностью, беременных, пожилых и опекуна с ребёнком до 3 лет.</blockquote>\n"
+              "<b>Почему бот не проверяет сам</b>\n"
+              "<blockquote>Сайт очереди закрыт от автоматических проверок (Cloudflare). Обходить защиту мы не будем, поэтому талоны замечают люди: "
+              "нажми 🔔 у своего центра, и сигнал придёт, как только кто-то увидит места.</blockquote>\n"
+              "<i>Запись бесплатна. Никому не плати за талон и не сообщай коды из Дії или банка. Данные на ноябрь 2026: адрес и выходные проверяй на странице центра.</i>",
+              "🛂 <b>Паспорт України в Іспанії</b>\n\n"
+              "Паспорти оформлює Паспортний сервіс ДП «Документ». В Іспанії три центри, запис лише через їхню електронну чергу:\n"
+              "<blockquote>• <b>Madrid</b> — Blvr. de José Prat, 35 (Vicálvaro)\n"
+              "• <b>Barcelona</b> — Av. del Segle XXI, 6 (Viladecans)\n"
+              "• <b>València</b> — Av. de Pius XII, 2, local 117</blockquote>\n"
+              "<b>Як записатися</b>\n"
+              "<blockquote>• Талони з’являються у випадковий час: так вирішив сам сервіс, щоб їх не перепродували. Однієї години немає.\n"
+              "• Під час запису може знадобитися Дія.Підпис або BankID, а код підтвердження приходить SMS або у Viber — тримай телефон поруч.\n"
+              "• Приходь за 10 хвилин і показуй оригінальне підтвердження: пересланих повідомлень і скриншотів не приймають.\n"
+              "• Без запису зазвичай приймають людей з інвалідністю, вагітних, літніх і опікуна з дитиною до 3 років.</blockquote>\n"
+              "<b>Чому бот не перевіряє сам</b>\n"
+              "<blockquote>Сайт черги закритий від автоматичних перевірок (Cloudflare). Обходити захист ми не будемо, тому талони помічають люди: "
+              "натисни 🔔 біля свого центру, і сигнал прийде, щойно хтось побачить місця.</blockquote>\n"
+              "<i>Запис безкоштовний. Нікому не плати за талон і не повідомляй коди з Дії чи банку. Дані на листопад 2026: адресу й вихідні перевіряй на сторінці центру.</i>",
+              "🛂 <b>Pasaporte ucraniano en España</b>\n\n"
+              "Los pasaportes los tramita el Servicio de Pasaportes de la empresa estatal «Dokument». En España hay tres centros y la cita solo se pide en su cola electrónica:\n"
+              "<blockquote>• <b>Madrid</b>: Blvr. de José Prat, 35 (Vicálvaro)\n"
+              "• <b>Barcelona</b>: Av. del Segle XXI, 6 (Viladecans)\n"
+              "• <b>València</b>: Av. de Pius XII, 2, local 117</blockquote>\n"
+              "<b>Cómo pedir cita</b>\n"
+              "<blockquote>• Los turnos salen a horas aleatorias: lo decidió el propio servicio para que no se revendan. No hay una hora fija.\n"
+              "• Puede pedirse Diia.Pidpys o BankID, y el código de confirmación llega por SMS o Viber: ten el móvil a mano.\n"
+              "• Llega 10 minutos antes y enseña la confirmación original: no aceptan mensajes reenviados ni capturas.\n"
+              "• Sin cita suelen atender a personas con discapacidad, embarazadas, mayores y a quien va con un niño menor de 3 años.</blockquote>\n"
+              "<b>Por qué el bot no lo revisa solo</b>\n"
+              "<blockquote>La web de la cola está cerrada a las revisiones automáticas (Cloudflare). No vamos a saltarnos esa protección, así que los turnos los detectan las personas: "
+              "pulsa 🔔 en tu centro y te llegará la señal en cuanto alguien vea plazas.</blockquote>\n"
+              "<i>La cita es gratis. No pagues a nadie por un turno ni des códigos de Diia o del banco. Datos de noviembre de 2026: comprueba la dirección y los días de cierre en la página del centro.</i>",
+              "🛂 <b>Ukrainian passport in Spain</b>\n\n"
+              "Passports are issued by the Passport Service of the state enterprise «Dokument». Spain has three centres, and you can only book through their e-queue:\n"
+              "<blockquote>• <b>Madrid</b>: Blvr. de José Prat, 35 (Vicálvaro)\n"
+              "• <b>Barcelona</b>: Av. del Segle XXI, 6 (Viladecans)\n"
+              "• <b>València</b>: Av. de Pius XII, 2, local 117</blockquote>\n"
+              "<b>How to book</b>\n"
+              "<blockquote>• Slots are released at random times: the service decided this itself so they can't be resold. There's no fixed hour.\n"
+              "• You may need Diia.Pidpys or BankID, and the confirmation code comes by SMS or Viber, so keep your phone close.\n"
+              "• Arrive 10 minutes early and show the original confirmation: forwarded messages and screenshots aren't accepted.\n"
+              "• People with disabilities, pregnant women, older people and anyone with a child under 3 are usually seen without booking.</blockquote>\n"
+              "<b>Why the bot doesn't check it itself</b>\n"
+              "<blockquote>The queue website is closed to automated checks (Cloudflare). We won't get around that protection, so people spot the slots: "
+              "tap 🔔 next to your centre and you'll get a signal as soon as someone sees free slots.</blockquote>\n"
+              "<i>Booking is free. Don't pay anyone for a slot and never share Diia or bank codes. Information as of November 2026: check the address and closing days on the centre's page.</i>")
+    watch = _watch_lines(chat, "pas")
+    if watch:
+        text += "\n\n" + watch
+    if note:
+        text += "\n\n" + note
+    rows = _place_rows(chat, "pas")
+    rows.append([btn(tx(lang, "🟢 Я вижу талоны", "🟢 Я бачу талони", "🟢 Veo turnos", "🟢 I see slots"), "pz:r", "primary")])
+    rows.append([btn(tx(lang, "🏛 Консульство", "🏛 Консульство", "🏛 Consulado", "🏛 Consulate"), "pk"),
+                 btn(tx(lang, "⬅️ Для украинцев", "⬅️ Для українців", "⬅️ Para ucranianos", "⬅️ For Ukrainians"), "ua")])
+    rows.append([home_btn(lang)])
+    return text, ikb(rows)
+
+
+def consul_view(chat: int, note: str = "") -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    text = tx(lang,
+              "🏛 <b>Консульство Украины</b>\n\n"
+              "Посольство в Мадриде (консульский отдел) и Генеральное консульство в Барселоне принимают только по записи через <b>е-Консул</b>.\n"
+              "<blockquote>• Вход через ID.GOV.UA: Дія.Підпис, BankID или файловый ключ (КЕП).\n"
+              "• Нет свободного времени — встань в <b>лист ожидания</b> в самом е-Консуле: система пришлёт email, когда появится место. "
+              "Это официально и быстрее всего.\n"
+              "• В Мадриде готовые документы выдают без записи.</blockquote>\n"
+              "Ещё можно ждать сигналов от людей: нажми 🔔 у своего консульства.\n\n"
+              "<i>Запись бесплатна, никому не плати за неё.</i>",
+              "🏛 <b>Консульство України</b>\n\n"
+              "Посольство в Мадриді (консульський відділ) і Генеральне консульство в Барселоні приймають лише за записом через <b>е-Консул</b>.\n"
+              "<blockquote>• Вхід через ID.GOV.UA: Дія.Підпис, BankID або файловий ключ (КЕП).\n"
+              "• Немає вільного часу — стань у <b>лист очікування</b> в самому е-Консулі: система надішле email, коли з’явиться місце. "
+              "Це офіційно і найшвидше.\n"
+              "• У Мадриді готові документи видають без запису.</blockquote>\n"
+              "Ще можна чекати сигналів від людей: натисни 🔔 біля свого консульства.\n\n"
+              "<i>Запис безкоштовний, нікому за нього не плати.</i>",
+              "🏛 <b>Consulado de Ucrania</b>\n\n"
+              "La Embajada en Madrid (sección consular) y el Consulado General en Barcelona solo atienden con cita en <b>e-Konsul</b>.\n"
+              "<blockquote>• Se entra con ID.GOV.UA: Diia.Pidpys, BankID o una clave de archivo (firma electrónica).\n"
+              "• Si no hay horas libres, apúntate a la <b>lista de espera</b> del propio e-Konsul: el sistema te enviará un email cuando haya plaza. "
+              "Es oficial y lo más rápido.\n"
+              "• En Madrid los documentos ya listos se recogen sin cita.</blockquote>\n"
+              "También puedes esperar las señales de otras personas: pulsa 🔔 en tu consulado.\n\n"
+              "<i>La cita es gratis: no pagues a nadie por ella.</i>",
+              "🏛 <b>Ukrainian consulate</b>\n\n"
+              "The Embassy in Madrid (consular section) and the Consulate General in Barcelona only see people who book through <b>e-Consul</b>.\n"
+              "<blockquote>• You log in with ID.GOV.UA: Diia.Pidpys, BankID or a file key (e-signature).\n"
+              "• No free times? Join the <b>waiting list</b> in e-Consul itself: the system emails you when a slot opens. "
+              "It's official and the fastest way.\n"
+              "• In Madrid, ready documents are collected without booking.</blockquote>\n"
+              "You can also wait for signals from other people: tap 🔔 next to your consulate.\n\n"
+              "<i>Booking is free: don't pay anyone for it.</i>")
+    watch = _watch_lines(chat, "con")
+    if watch:
+        text += "\n\n" + watch
+    if note:
+        text += "\n\n" + note
+    rows = _place_rows(chat, "con")
+    rows.append([btn(tx(lang, "🟢 Я вижу свободное время", "🟢 Я бачу вільний час", "🟢 Veo horas libres", "🟢 I see free times"), "pk:r", "primary")])
+    rows.append([btn(tx(lang, "🛂 Паспорт", "🛂 Паспорт", "🛂 Pasaporte", "🛂 Passport"), "pz"),
+                 btn(tx(lang, "⬅️ Для украинцев", "⬅️ Для українців", "⬅️ Para ucranianos", "⬅️ For Ukrainians"), "ua")])
+    rows.append([home_btn(lang)])
+    return text, ikb(rows)
+
+
+def place_pick(chat: int, doc: str) -> Tuple[str, dict]:
+    """Где человек видит места: паспортный центр или консульство."""
+    lang = lang_of(chat)
+    rows = [[btn(city, f"dd:r:{province}:{doc}")] for province, city in signals.places(doc).items()]
+    rows.append([btn(tx(lang, "⬅️ Назад", "⬅️ Назад", "⬅️ Atrás", "⬅️ Back"), DOC_HOME[doc]), home_btn(lang)])
+    return tx(lang, "🟢 <b>Где ты видишь места?</b>", "🟢 <b>Де ти бачиш місця?</b>",
+              "🟢 <b>¿Dónde ves plazas?</b>", "🟢 <b>Where do you see slots?</b>"), ikb(rows)
 
 
 def privacy_view(chat: int) -> Tuple[str, dict]:
@@ -2569,14 +2732,27 @@ def window_limit_note(lang: str) -> str:
 
 def window_alert(chat: int) -> Tuple[str, dict]:
     lang = lang_of(chat)
-    items = "\n".join(f"{doc_title(lang, doc)} · <b>{esc(signals.PROVINCES[province])}</b>" for province, doc in signals.subs_of(chat)[:5])
+    mine = signals.subs_of(chat)[:5]
+    items = "\n".join(f"{doc_title(lang, doc)} · <b>{esc(signals.PROVINCES[province])}</b>" for province, doc in mine)
+    links = list(dict.fromkeys(filter(None, (signals.booking_url(p, d) for p, d in mine)))) or [signals.ICP_URL]
+    site = tx(lang, "📝 Открыть сайт записи", "📝 Відкрити сайт запису", "📝 Abrir la web de citas", "📝 Open the booking site")
     return (tx(lang, "⏰ <b>Время проверить запись</b>", "⏰ <b>Час перевірити запис</b>", "⏰ <b>Hora de mirar las citas</b>", "⏰ <b>Time to check appointments</b>")
             + f"\n{items}\n\n"
             + tx(lang, "Если увидишь места, нажми кнопку: все, кто ждёт, сразу получат сигнал.", "Якщо побачиш місця, натисни кнопку: усі, хто чекає, одразу отримають сигнал.",
                  "Si ves plazas, pulsa el botón: quienes esperan recibirán la señal al momento.", "If you see slots, tap the button: everyone waiting gets a signal right away."),
-            ikb([[url(tx(lang, "📝 Открыть сайт записи", "📝 Відкрити сайт запису", "📝 Abrir la web de citas", "📝 Open the booking site"), signals.ICP_URL, "primary")],
-                 [btn(tx(lang, "🟢 Я вижу свободные места", "🟢 Я бачу вільні місця", "🟢 Veo plazas libres", "🟢 I see free slots"), "dp:r:0", "success")],
+            ikb([[url(site if len(links) == 1 else f"📝 {link_name(lang, link)}", link, "primary")] for link in links[:3]]
+                + [[btn(tx(lang, "🟢 Я вижу свободные места", "🟢 Я бачу вільні місця", "🟢 Veo plazas libres", "🟢 I see free slots"), "dp:r:0", "success")],
                  [btn(tx(lang, "⏰ Настроить", "⏰ Налаштувати", "⏰ Ajustar", "⏰ Adjust"), "dw"), btn(hide_label(lang), "hide")]]))
+
+
+def link_name(lang: str, link: str) -> str:
+    """Подпись к ссылке, когда их несколько: Extranjería, е-Консул или город паспортного сервиса."""
+    if link == signals.ICP_URL:
+        return "Extranjería"
+    if link == signals.CONSUL_URL:
+        return tx(lang, "е-Консул", "е-Консул", "e-Konsul", "e-Consul")
+    city = next((city for city, page in signals.PASSPORT.values() if page == link), "")
+    return tx(lang, f"ДП «Документ» {city}", f"ДП «Документ» {city}", f"Pasaportes {city}", f"Passports {city}")
 
 
 # ---------- статистика офисов ----------

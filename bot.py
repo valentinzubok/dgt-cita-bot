@@ -45,7 +45,7 @@ from views import tx
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("bot")
 
-SECTIONS = ("trial", "post", "partner", "school", "stats", "tie", "radar", "premium", "bonus", "docs")  # разделы с прямыми ссылками ?start=… и командами
+SECTIONS = ("trial", "post", "partner", "school", "stats", "tie", "radar", "premium", "bonus", "docs", "passport", "consul")  # разделы с прямыми ссылками ?start=… и командами
 opens: Dict[int, str] = {}  # раздел из ссылки: откроется после выбора языка
 LEGACY_BUTTONS = {"➕ Добавить офис": "/add", "📋 Мои подписки": "/list", "🔄 Проверить сейчас": "/check",
                   "⚙️ Настройки": "/settings", "❓ Помощь": "/help"}  # кнопки под полем ввода из первой версии
@@ -285,6 +285,10 @@ def handle_start_arg(chat: int, arg: str, is_new: bool) -> None:
         opens[chat] = arg.split("-", 1)[0]
         if is_new:
             store.set_chat(chat, source=arg[:40])
+    elif re.fullmatch(r"of_\d{1,5}", arg) and arg[3:] in dgt.CENTROS:  # страница офиса на сайте: сразу его типы записи
+        opens[chat] = arg
+        if is_new:
+            store.set_chat(chat, source=arg)
     elif arg.startswith("promo_"):
         status, hours = rewards.apply_promo(chat, arg[6:])
         notes[chat] = ("promo", status, hours)
@@ -323,6 +327,12 @@ def open_section(chat: int, section: str, mid: Optional[int] = None) -> None:
         tg.show(chat, *views.bonus_view(chat), mid=mid, banner=views.banner("bonus"))
     elif section == "docs":
         tg.show(chat, *views.docs_view(chat), mid=mid, banner=views.banner("docs"))
+    elif section == "passport":
+        tg.show(chat, *views.passport_view(chat), mid=mid, banner=views.banner("docs"))
+    elif section == "consul":
+        tg.show(chat, *views.consul_view(chat), mid=mid, banner=views.banner("docs"))
+    elif section.startswith("of_") and section[3:] in dgt.CENTROS:
+        open_office(chat, section[3:], mid, tg.navigate(chat))
 
 
 def consume_note(chat: int) -> str:
@@ -706,6 +716,8 @@ def route_callback(cb: dict, chat: int, mid: int, data: str) -> Tuple[Optional[s
         return board_action(chat, mid, kind, rest, lang)
     elif kind == "dg":
         tg.show(chat, *views.tie_guide(chat), mid=mid, banner=views.banner("docs"))
+    elif kind in ("pz", "pk"):
+        return ukraine_action(chat, mid, "pas" if kind == "pz" else "con", rest, lang)
     elif data == "dw":
         tg.show(chat, *views.windows_view(chat), mid=mid)
     elif kind == "dw" and rest.isdigit():
@@ -830,6 +842,8 @@ def docs_action(chat: int, mid: int, kind: str, rest: str, lang: str) -> Tuple[O
         screen(views.signal_added(lang))
     elif kind == "dr" and len(parts) == 2 and signals.valid(parts[0], parts[1]):
         status, sent = actions.report_signal(chat, parts[0], parts[1])
+        if parts[1] in views.DOC_HOME:
+            return ukraine_action(chat, mid, parts[1], "", lang, views.signal_result(lang, status, sent))
         screen(views.signal_result(lang, status, sent))
     elif kind == "dx" and len(parts) == 2:
         store.del_signal_sub(chat, parts[0], parts[1])
@@ -842,6 +856,23 @@ def docs_action(chat: int, mid: int, kind: str, rest: str, lang: str) -> Tuple[O
                             "This signal is already closed"), False
         tg.edit(chat, mid, *views.signal_alert(chat, sig, voted=True))
         return tx(lang, "Спасибо!", "Дякую!", "¡Gracias!", "Thanks!"), False
+    return None, False
+
+
+def ukraine_action(chat: int, mid: int, doc: str, rest: str, lang: str, note: str = "") -> Tuple[Optional[str], bool]:
+    """Паспорт (pz) и консульство (pk): экран; :28 — следить за сигналами или перестать; :r — где человек видит места."""
+    if rest == "r":
+        tg.show(chat, *views.place_pick(chat, doc), mid=mid)
+        return None, False
+    if rest in signals.places(doc):
+        if (rest, doc) in signals.subs_of(chat):
+            store.del_signal_sub(chat, rest, doc)
+        elif signals.subscribe(chat, rest, doc) == "limit":
+            return views.signal_limit(lang), True
+        else:
+            note = views.signal_added(lang)
+    screen = views.passport_view if doc == "pas" else views.consul_view
+    tg.show(chat, *screen(chat, note), mid=mid, banner=views.banner("docs"))
     return None, False
 
 

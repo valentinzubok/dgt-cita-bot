@@ -1,4 +1,4 @@
-"""Сайт бота для поиска в Google: одна страница на четырёх языках, robots.txt и sitemap.xml.
+"""Сайт бота для поиска в Google: главная на четырёх языках, страница каждого офиса DGT (по-испански), robots.txt и sitemap.xml.
 
 Цифры (офисы, уведомления, записи, отзывы) берутся из памяти бота, страница собирается раз в 10 минут.
 Базу сайт не трогает, поэтому Neon спокойно спит, даже когда страницу обходят поисковики."""
@@ -6,15 +6,19 @@ from __future__ import annotations
 
 import html
 import json
+import re
 import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import config
 import dgt
 import group
 import premium
+import radar
 import reviews
+import stats
 import store
+import views
 
 TTL = 600
 PATHS = {"es": "/", "uk": "/uk", "ru": "/ru", "en": "/en"}
@@ -42,7 +46,7 @@ T = {
                      ("📡", "Radar", "¿Sin fechas en tu ciudad? Busca en oficinas a 100, 150 o 250 km."),
                      ("⏰", "Recordatorio", "La víspera y la mañana de la cita, con lo que debes llevar."),
                      ("📊", "Estadística", "Dónde y a qué hora aparecen más plazas en los últimos 30 días."),
-                     ("🛂", "TIE y NIE", "Señales de la comunidad cuando alguien ve citas de extranjería en tu provincia."),
+                     ("🛂", "TIE, NIE y pasaporte", "Señales de la comunidad cuando alguien ve citas de extranjería, del pasaporte ucraniano o del consulado."),
                      ("🌍", "4 idiomas", "Español, ucraniano, ruso e inglés.")],
         "plans": "Gratis para empezar", "free": "Gratis", "prem": "Premium desde {p7} ⭐",
         "free_items": ["{fs} oficinas", "Revisión cada {fm} min", "1 radar al día"],
@@ -60,7 +64,7 @@ T = {
                                                          "El bot no introduce datos personales: te explica los pasos."),
                  ("¿Y la cita de extranjería (TIE, NIE)?", "Esa web tiene protección anti-bots, así que no la revisamos. En su lugar, la comunidad avisa "
                                                           "cuando ve citas en tu provincia.")],
-        "foot": "OkSita no tiene relación con la DGT ni con ningún organismo público.", "chat": "Chat",
+        "foot": "OkSita no tiene relación con la DGT ni con ningún organismo público.", "chat": "Chat", "offices": "Oficinas de la DGT",
     },
     "uk": {
         "title": "Cita previa DGT: сповіщення в Telegram про вільні дати · OkSita",
@@ -82,7 +86,7 @@ T = {
                      ("📡", "Радар", "У твоєму місті немає дат? Шукай в офісах за 100, 150 або 250 км."),
                      ("⏰", "Нагадування", "Напередодні та зранку в день візиту, зі списком документів."),
                      ("📊", "Статистика", "Де і о котрій частіше з’являються місця за 30 днів."),
-                     ("🛂", "TIE і NIE", "Сигнали від людей, коли хтось бачить записи до Extranjería у твоїй провінції."),
+                     ("🛂", "TIE, NIE і паспорт", "Сигнали від людей, коли хтось бачить записи до Extranjería, ДП «Документ» чи консульства."),
                      ("🌍", "4 мови", "Українська, російська, іспанська та англійська.")],
         "plans": "Почати можна безкоштовно", "free": "Безкоштовно", "prem": "Premium від {p7} ⭐",
         "free_items": ["{fs} офіси", "Перевірка кожні {fm} хв", "1 радар на день"],
@@ -100,7 +104,7 @@ T = {
                                            "але пояснює порядок."),
                  ("А запис до Extranjería (TIE, NIE)?", "Той сайт захищений від ботів, тому ми його не перевіряємо. Натомість люди самі дають сигнал, "
                                                         "коли бачать записи у твоїй провінції.")],
-        "foot": "OkSita не пов’язаний з DGT чи іншими державними органами.", "chat": "Чат",
+        "foot": "OkSita не пов’язаний з DGT чи іншими державними органами.", "chat": "Чат", "offices": "Офіси DGT",
     },
     "ru": {
         "title": "Cita previa DGT: уведомление в Telegram о свободных датах · OkSita",
@@ -122,7 +126,7 @@ T = {
                      ("📡", "Радар", "В твоём городе нет дат? Ищи в офисах в 100, 150 или 250 км."),
                      ("⏰", "Напоминание", "Накануне и утром в день визита, со списком документов."),
                      ("📊", "Статистика", "Где и во сколько чаще появляются места за 30 дней."),
-                     ("🛂", "TIE и NIE", "Сигналы от людей, когда кто-то видит записи в Extranjería в твоей провинции."),
+                     ("🛂", "TIE, NIE и паспорт", "Сигналы от людей, когда кто-то видит записи в Extranjería, ДП «Документ» или консульство."),
                      ("🌍", "4 языка", "Украинский, русский, испанский и английский.")],
         "plans": "Начать можно бесплатно", "free": "Бесплатно", "prem": "Premium от {p7} ⭐",
         "free_items": ["{fs} офиса", "Проверка каждые {fm} мин", "1 радар в день"],
@@ -140,7 +144,7 @@ T = {
                                            "но объясняет порядок."),
                  ("А запись в Extranjería (TIE, NIE)?", "Тот сайт защищён от ботов, поэтому мы его не проверяем. Зато люди сами дают сигнал, "
                                                        "когда видят записи в твоей провинции.")],
-        "foot": "OkSita не связан с DGT и другими государственными органами.", "chat": "Чат",
+        "foot": "OkSita не связан с DGT и другими государственными органами.", "chat": "Чат", "offices": "Офисы DGT",
     },
     "en": {
         "title": "DGT cita previa: Telegram alerts when appointments open · OkSita",
@@ -162,7 +166,7 @@ T = {
                      ("📡", "Radar", "No dates in your city? Search offices within 100, 150 or 250 km."),
                      ("⏰", "Reminders", "The evening before and the morning of your visit, with what to bring."),
                      ("📊", "Statistics", "Where and when slots appear most over the last 30 days."),
-                     ("🛂", "TIE and NIE", "Community signals when someone sees Extranjería appointments in your province."),
+                     ("🛂", "TIE, NIE and passport", "Community signals when someone sees Extranjería, Ukrainian passport or consulate appointments."),
                      ("🌍", "4 languages", "Spanish, Ukrainian, Russian and English.")],
         "plans": "Free to start", "free": "Free", "prem": "Premium from {p7} ⭐",
         "free_items": ["{fs} offices", "Checked every {fm} min", "1 radar a day"],
@@ -180,7 +184,7 @@ T = {
                                                                      "with your NIE. The bot never enters personal data, but explains the steps."),
                  ("And Extranjería appointments (TIE, NIE)?", "That website is protected against bots, so we don't check it. Instead, the community "
                                                               "signals when they see appointments in your province.")],
-        "foot": "OkSita is not affiliated with DGT or any public body.", "chat": "Chat",
+        "foot": "OkSita is not affiliated with DGT or any public body.", "chat": "Chat", "offices": "DGT offices",
     },
 }
 
@@ -230,6 +234,8 @@ details{background:var(--card);border-radius:18px;padding:18px 20px;box-shadow:0
 summary{font-weight:700;cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:12px}summary:after{content:"+";font-size:22px;line-height:1;color:var(--hint)}
 details[open] summary:after{content:"−"}details p{margin:10px 0 0;color:var(--hint)}
 footer{padding:56px 0 40px;color:var(--hint);font-size:14px}footer nav{display:flex;flex-wrap:wrap;gap:18px;margin-bottom:12px}footer a{font-weight:650;text-decoration:none;color:var(--text)}
+.list{columns:3 220px;gap:24px;margin:0;padding:0;list-style:none}.list li{break-inside:avoid;padding:5px 0}.list a{font-weight:600;text-decoration:none}
+.list small,.crumbs{color:var(--hint);font-size:14px}.crumbs{margin:22px 0 -40px}.crumbs a{text-decoration:none}
 @media(max-width:860px){.hero{grid-template-columns:1fr;padding-top:36px}.phone{display:none}.stats{grid-template-columns:repeat(2,1fr)}h1{letter-spacing:-1px}
 .steps,.feats,.reviews{grid-template-columns:1fr}.plans{grid-template-columns:1fr}.school{flex-direction:column;align-items:flex-start}}
 @media(prefers-reduced-motion:reduce){.notif{animation:none}}
@@ -313,7 +319,7 @@ def render(lang: str) -> str:
 {review_block}
 <div class="school"><div><h2>🏫 {esc(t['school'])}</h2><p>{esc(t['school_text'])}</p></div><a class="btn" href="{bot('school-web')}">{esc(t['school_btn'])}</a></div>
 <section class="block" id="faq"><h2>{esc(t['faq'])}</h2>{''.join(f'<details><summary>{esc(q)}</summary><p>{esc(fmt(a))}</p></details>' for q, a in t['faqs'])}</section>
-</main><footer class="wrap"><nav><a href="{bot(start)}">Telegram</a><a href="{channel()}">📢 {esc(store.setting('channel'))}</a>{chat_link(t)}</nav>
+</main><footer class="wrap"><nav><a href="{bot(start)}">Telegram</a><a href="/dgt">🏢 {esc(t['offices'])}</a><a href="{channel()}">📢 {esc(store.setting('channel'))}</a>{chat_link(t)}</nav>
 <p>{esc(t['foot'])} © {time.strftime('%Y')} OkSita</p></footer></body></html>"""
 
 
@@ -322,15 +328,102 @@ def chat_link(t: dict) -> str:
     return f'<a href="{esc(link)}">💬 {esc(t["chat"])}</a>' if link else ""
 
 
+# ---------- страницы офисов: «cita previa DGT Málaga» ----------
+
+def slug(cid: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", views.fold(views.city(cid))).strip("-")
+
+
+def slugs() -> Dict[str, str]:
+    """Адрес страницы → офис. Список офисов бот обновляет с сайта DGT, поэтому считаем каждый раз."""
+    return {slug(cid): cid for cid in dgt.CENTROS}
+
+
+def shell(title: str, desc: str, path: str, body: str, ld: List[dict]) -> str:
+    base = config.PUBLIC_URL or ""
+    scripts = "".join(f'<script type="application/ld+json">{json.dumps(x, ensure_ascii=False)}</script>' for x in ld)
+    return f"""<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)}</title>
+<meta name="description" content="{esc(desc)}"><link rel="canonical" href="{base}{path}"><meta name="theme-color" content="#ff5a36">
+<meta property="og:type" content="website"><meta property="og:title" content="{esc(title)}"><meta property="og:description" content="{esc(desc)}">
+<meta property="og:url" content="{base}{path}"><meta property="og:image" content="{base}/static/cover.png"><meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/app/icon.png"><style>{CSS}</style>{scripts}</head><body>
+<header><div class="wrap bar"><a class="logo" href="/"><i>Ok</i><span><b>Ok</b>Sita</span></a><nav class="langs"><a href="/dgt">Oficinas</a><a href="/uk">UK</a><a href="/ru">RU</a></nav></div></header>
+<main class="wrap">{body}</main><footer class="wrap"><nav><a href="/">Inicio</a><a href="/dgt">🏢 Todas las oficinas</a><a href="{bot('web-dgt')}">Telegram</a>{chat_link(T['es'])}</nav>
+<p>{esc(T['es']['foot'])} © {time.strftime('%Y')} OkSita</p></footer></body></html>"""
+
+
+def office_page(cid: str) -> str:
+    t, city, name = T["es"], views.city(cid), dgt.CENTROS[cid]
+    seen = [g for g in stats.offices() if g["centro"] == cid]
+    total = sum(g["opens"] for g in seen)
+    rows = "".join(f'<div class="feat"><span>📅</span><h3>{esc(views.area_label(g["area"]))}</h3><p>{g["opens"]} '
+                   f'{"vez" if g["opens"] == 1 else "veces"} en 30 días · sobre todo hacia las {g["best"]}:00'
+                   + (f' · duran unos {esc(views.fmt_dur(g["avg"], "es"))}' if g["avg"] else "") + "</p></div>" for g in seen[:6])
+    history = (f'<div class="feats">{rows}</div><p class="small">Hora de Madrid. Solo contamos los trámites que siguen los usuarios del bot.</p>' if seen else
+               '<p class="lead">Aún no hay datos de esta oficina en los últimos 30 días. Las estadísticas aparecen en cuanto alguien la sigue con el bot.</p>')
+    cached = store.office_areas(cid)
+    areas = "".join(f"<li>{esc(views.area_label(code, label))}</li>" for code, label in (cached[1] if cached else []))
+    near = [(c, km) for c, km in radar.nearest(cid, 150) if c != cid][:6] if cid in radar.COORDS else []
+    near_html = "".join(f'<li><a href="/dgt/{slug(c)}">{esc(views.city(c))}</a> <small>· {km} km</small></li>' for c, km in near)
+    when = (f"En los últimos 30 días hubo plazas libres {total} {'vez' if total == 1 else 'veces'}, sobre todo hacia las "
+            f"{max(seen, key=lambda g: g['opens'])['best']}:00 (hora de Madrid)." if seen else
+            "Las plazas salen cuando alguien anula su cita o la oficina abre días nuevos: no hay una hora fija.")
+    faqs = [(f"¿Cómo pido cita en la DGT de {city}?", "En la web oficial sede.dgt.gob.es, en la app miDGT o llamando al 060. "
+                                                       "Si no hay fechas, activa el aviso de OkSita: te escribe en Telegram cuando se liberan."),
+            (f"¿Cuándo salen citas en {city}?", when),
+            t["faqs"][0], t["faqs"][1]]
+    faq_ld = {"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [
+        {"@type": "Question", "name": q, "acceptedAnswer": {"@type": "Answer", "text": a.format(**numbers())}} for q, a in faqs]}
+    crumbs = {"@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [
+        {"@type": "ListItem", "position": 1, "name": "OkSita", "item": f"{config.PUBLIC_URL}/"},
+        {"@type": "ListItem", "position": 2, "name": "Oficinas de la DGT", "item": f"{config.PUBLIC_URL}/dgt"},
+        {"@type": "ListItem", "position": 3, "name": city, "item": f"{config.PUBLIC_URL}/dgt/{slug(cid)}"}]}
+    body = f"""<p class="crumbs"><a href="/dgt">Oficinas de la DGT</a> › {esc(city)}</p>
+<section class="hero" style="grid-template-columns:1fr"><div><span class="badge">{esc(name)}</span><h1>Cita previa DGT en <em>{esc(city)}</em></h1>
+<p class="lead">OkSita revisa la web de cita previa de esta oficina por ti y te escribe en Telegram en cuanto aparecen fechas libres. Tú solo entras y reservas en sede.dgt.gob.es.</p>
+<div class="ctas"><a class="btn main" href="{bot('of_' + cid)}">✈️ Avisarme de citas en {esc(city)}</a><a class="btn alt" href="{channel()}">📢 {esc(t['cta2'])}</a></div>
+<p class="note">{esc(t['note'])}</p></div></section>
+<section class="block"><h2>Citas libres en {esc(city)}, últimos 30 días</h2>{history}</section>
+{f'<section class="block"><h2>Trámites con cita en esta oficina</h2><ul class="list">{areas}</ul></section>' if areas else ''}
+{f'<section class="block"><h2>Oficinas cercanas</h2><p class="small" style="margin:-12px 0 18px">Si en {esc(city)} no hay fechas, el radar del bot busca también en estas.</p><ul class="list">{near_html}</ul></section>' if near_html else ''}
+<section class="block"><h2>{esc(t['how'])}</h2><div class="steps">{''.join(f'<div class="step"><i>{i}</i><h3>{esc(a)}</h3><p>{esc(b)}</p></div>' for i, (a, b) in enumerate(t['steps'], 1))}</div></section>
+<section class="block"><h2>{esc(t['faq'])}</h2>{''.join(f'<details><summary>{esc(q)}</summary><p>{esc(a.format(**numbers()))}</p></details>' for q, a in faqs)}</section>"""
+    return shell(f"Cita previa DGT {city}: aviso de citas libres · OkSita",
+                 f"Aviso en Telegram cuando hay cita previa libre en la {name}: examen, vehículos, permisos y más. Gratis y sin dar tu NIE.",
+                 f"/dgt/{slug(cid)}", body, [faq_ld, crumbs])
+
+
+def offices_page() -> str:
+    links = "".join(f'<li><a href="/dgt/{s_}">{esc(views.city(cid))}</a></li>'
+                    for s_, cid in sorted(slugs().items(), key=lambda x: views.fold(views.city(x[1]))))
+    body = f"""<section class="hero" style="grid-template-columns:1fr"><div><span class="badge">{len(dgt.CENTROS)} oficinas</span>
+<h1>Cita previa DGT: <em>todas las oficinas</em></h1><p class="lead">Elige tu Jefatura u Oficina de Tráfico para ver cuándo salen citas y activar el aviso en Telegram.</p></div></section>
+<section class="block" style="padding-top:8px"><ul class="list">{links}</ul></section>"""
+    return shell("Cita previa DGT en todas las oficinas de Tráfico · OkSita",
+                 "Las 68 Jefaturas y Oficinas de Tráfico: cuándo salen citas libres en cada una y aviso gratis en Telegram.", "/dgt", body, [])
+
+
 def page(path: str) -> Optional[Tuple[bytes, str]]:
     """Готовая страница по адресу или None. Собираем раз в 10 минут."""
     lang = next((code for code, p in PATHS.items() if p == path), None)
+    if path == "/dgt" or path.startswith("/dgt/"):
+        cid = slugs().get(path[5:]) if path != "/dgt" else None
+        if path != "/dgt" and not cid:
+            return None
+        lang = path  # в кэше страницы офисов лежат по своему адресу
+        hit = _pages.get(lang)
+        if not hit or time.time() - hit[0] > TTL:
+            hit = (time.time(), (office_page(cid) if cid else offices_page()).encode())
+            _pages[lang] = hit
+        return hit[1], "text/html; charset=utf-8"
     if path == "/robots.txt":
         return f"User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /app\nSitemap: {config.PUBLIC_URL}/sitemap.xml\n".encode(), "text/plain; charset=utf-8"
     if path == "/sitemap.xml":
         urls = "".join(f"<url><loc>{config.PUBLIC_URL}{p}</loc>"
                        + "".join(f'<xhtml:link rel="alternate" hreflang="{c}" href="{config.PUBLIC_URL}{q}"/>' for c, q in PATHS.items())
                        + "</url>" for p in PATHS.values())
+        urls += "".join(f"<url><loc>{config.PUBLIC_URL}{p}</loc></url>" for p in ["/dgt"] + [f"/dgt/{x}" for x in sorted(slugs())])
         return (f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
                 f'xmlns:xhtml="http://www.w3.org/1999/xhtml">{urls}</urlset>').encode(), "application/xml; charset=utf-8"
     if not lang:

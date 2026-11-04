@@ -25,6 +25,7 @@ import group  # noqa: E402
 import landing  # noqa: E402
 import reviews  # noqa: E402
 import schools  # noqa: E402
+import signals  # noqa: E402
 import store  # noqa: E402
 import tg  # noqa: E402
 import views  # noqa: E402
@@ -360,6 +361,73 @@ class Site(Base):
         self.assertEqual(landing.round_down(57), "50+")
         self.assertEqual(landing.round_down(1234), "1200+")
 
+    def test_office_pages(self):
+        landing._pages.clear()
+        store.save_office_areas("565", [["EXM", "Exámenes"], ["VEH", "Vehículos"]])
+        body = landing.page("/dgt/alicante")[0].decode()
+        self.assertIn("Cita previa DGT en <em>Alicante</em>", body)
+        self.assertIn("start=of_565", body)
+        self.assertIn('href="/dgt/elche"', body)  # соседний офис
+        self.assertIn("Vehículos", body)
+        for block in re.findall(r'<script type="application/ld\+json">(.*?)</script>', body):
+            json.loads(block)
+        index = landing.page("/dgt")[0].decode()
+        self.assertEqual(index.count('<li><a href="/dgt/'), len(landing.dgt.CENTROS))
+        self.assertIn("/dgt/a-coruna</loc>", landing.page("/sitemap.xml")[0].decode())
+        self.assertIsNone(landing.page("/dgt/nope"))
+
+    def test_office_link_opens_the_office(self):
+        chat = self.user(6301)
+        store.save_office_areas("565", [["EXM", "Exámenes"]])
+        bot.handle_start_arg(chat, "of_565", True)
+        self.assertEqual(store.get_chat(chat)["source"], "of_565")
+        bot.on_message({"chat": {"id": chat, "type": "private"}, "from": {"id": chat}, "message_id": 1, "text": "/start of_565"})
+        self.assertIn("Alicante", self.shown()[-1]["text"])
+
+
+
+class UkrainianDocs(Base):
+    """Паспорт ДП «Документ» и консульство: только свои города, ссылки на официальные очереди, сигналы от людей."""
+
+    def setUp(self):
+        super().setUp()
+        for table in (store._sig_subs, store._signals, store._sig_votes):
+            table.clear()
+
+    def test_passport_only_in_its_three_centres(self):
+        self.assertEqual(signals.subscribe(self.user(6201), "29", "pas"), "bad")
+        self.assertEqual(signals.subscribe(6201, "46", "pas"), "ok")
+        self.assertEqual(signals.subscribe(self.user(6202), "46", "con"), "bad")
+        self.assertEqual(signals.booking_url("08", "pas"), "https://barcelona.pasport.org.ua/solutions/e-queue")
+        self.assertEqual(signals.booking_url("28", "con"), signals.CONSUL_URL)
+        self.assertNotIn("dd:s:29:pas", json.dumps(views.doc_types(6201, "s", "29")[1]))
+        self.assertIn("dd:s:28:pas", json.dumps(views.doc_types(6201, "s", "28")[1]))
+
+    def test_bell_toggles_the_centre(self):
+        chat = self.user(6203, "uk")
+        bot.route_callback({"from": {"id": chat}}, chat, 9, "pz:28")
+        self.assertEqual(signals.subs_of(chat), [("28", "pas")])
+        self.assertIn("✅ Madrid", json.dumps(self.shown()[-1]["kb"], ensure_ascii=False))
+        self.assertEqual(bot.route_callback({"from": {"id": chat}}, chat, 9, "pz:08"), (views.signal_limit("uk"), True))
+        bot.route_callback({"from": {"id": chat}}, chat, 9, "pz:28")
+        self.assertEqual(signals.subs_of(chat), [])
+
+    def test_report_from_passport_screen_reaches_others_with_the_official_link(self):
+        reporter, waiter = self.user(6204), self.user(6205, "uk")
+        signals.subscribe(waiter, "46", "pas")
+        bot.route_callback({"from": {"id": reporter}}, reporter, 9, "pz:r")
+        self.assertIn("dd:r:46:pas", json.dumps(self.shown()[-1]["kb"]))
+        bot.route_callback({"from": {"id": reporter}}, reporter, 9, "dr:46:pas")
+        self.assertIn("Паспорт Украины в Испании", self.shown()[-1]["text"])
+        alert = [p for p in sent("sendMessage") if p.get("chat_id") == waiter][-1]
+        self.assertIn("valencia.pasport.org.ua", json.dumps(alert["reply_markup"]))
+
+    def test_window_reminder_links_the_sites_people_follow(self):
+        chat = self.user(6206)
+        signals.subscribe(chat, "28", "pas")
+        kb = json.dumps(views.window_alert(chat)[1])
+        self.assertIn("madrid.pasport.org.ua", kb)
+        self.assertNotIn(signals.ICP_URL, kb)
 
 if __name__ == "__main__":
     unittest.main()

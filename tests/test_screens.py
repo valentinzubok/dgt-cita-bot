@@ -125,7 +125,10 @@ class Screens(unittest.TestCase):
             for name, screen in {
                 "docs": views.docs_view(chat, "заметка"), "prov": views.doc_provinces(chat, "r", 3), "types": views.doc_types(chat, "s", "38"),
                 "confirm": views.doc_confirm(chat, "38", "pas"), "alert": views.signal_alert(chat, sig), "voted": views.signal_alert(chat, sig, True),
-                "passport": views.signal_alert(chat, dict(sig, doc="pas")),
+                "passport": views.signal_alert(chat, dict(sig, doc="pas", province="08")),
+                "consulate": views.signal_alert(chat, dict(sig, doc="con", province="28")),
+                "pz": views.passport_view(chat, "заметка"), "pk": views.consul_view(chat, "заметка"),
+                "pick_pas": views.place_pick(chat, "pas"), "pick_con": views.place_pick(chat, "con"), "window": views.window_alert(chat),
             }.items():
                 check(self, screen, f"{name}/{chat}")
             for status in ("ok", "merged", "daily", "muted"):

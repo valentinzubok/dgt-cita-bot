@@ -41,10 +41,36 @@ DOCS = {
     "con": ("🏛", "Консульство Украины", "Консульство України", "Consulado de Ucrania", "Ukrainian consulate"),
 }
 ICP_DOCS = ("ukr", "tie", "rec", "nie", "asy", "ext")  # записываются на сайте Extranjería
+# Паспортний сервіс ДП «Документ» в Испании: провинция → (город, страница очереди). Сайт закрыт Cloudflare от ботов, бот его не открывает
+PASSPORT = {
+    "28": ("Madrid", "https://madrid.pasport.org.ua/solutions/e-queue"),
+    "08": ("Barcelona", "https://barcelona.pasport.org.ua/solutions/e-queue"),
+    "46": ("València", "https://valencia.pasport.org.ua/solutions/e-queue"),
+}
+CONSULATES = {"28": "Madrid", "08": "Barcelona"}  # посольство и генконсульство, запись только через е-Консул
+CONSUL_URL = "https://e-consul.gov.ua/"
 
 
 def valid(province: str, doc: str) -> bool:
-    return province in PROVINCES and doc in DOCS
+    if province not in PROVINCES or doc not in DOCS:
+        return False
+    return province in PASSPORT if doc == "pas" else province in CONSULATES if doc == "con" else True
+
+
+def booking_url(province: str, doc: str) -> Optional[str]:
+    """Официальный сайт записи для сигнала."""
+    if doc in ICP_DOCS:
+        return ICP_URL
+    if doc == "pas":
+        return PASSPORT[province][1] if province in PASSPORT else None
+    return CONSUL_URL if doc == "con" else None
+
+
+def places(doc: str) -> dict:
+    """Где вообще бывает запись: паспорт и консульство — только в своих городах."""
+    if doc == "pas":
+        return {p: city for p, (city, _) in PASSPORT.items()}
+    return CONSULATES if doc == "con" else {p: name for p, name in PROVINCES.items()}
 
 
 def limit(chat: int) -> int:
