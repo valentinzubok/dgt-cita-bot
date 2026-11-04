@@ -57,7 +57,7 @@ def ics_link(sub: dict) -> Optional[str]:
 
 
 def _text(s: str) -> str:
-    return s.replace("\\", "\\\\").replace(";", "\;").replace(",", "\\,").replace("\n", "\\n")
+    return s.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
 
 
 def _fold(line: str) -> str:
