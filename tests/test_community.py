@@ -501,5 +501,32 @@ class SpainExtras(Base):
         self.assertIsNone(schools.pop_request(6406))
 
 
+    def test_effect_never_costs_the_message(self):
+        seen = []
+
+        def picky(method, _timeout=40, **p):
+            seen.append(dict(p))
+            if "message_effect_id" in p:
+                return {"ok": False, "error_code": 400, "description": "Bad Request: EFFECT_ID_INVALID"}
+            return {"ok": True, "result": {"message_id": 77}}
+        old = tg.call
+        tg.call = picky
+        try:
+            self.assertEqual(tg.send(6407, "🔔", effect="fire"), 77)
+            self.assertEqual(seen[0]["message_effect_id"], tg.EFFECTS["fire"])
+            self.assertNotIn("message_effect_id", seen[1])
+            seen.clear()
+            store.set_setting("effects", 0)
+            tg.send(6407, "🔔", effect="fire")
+            self.assertNotIn("message_effect_id", seen[0])
+            seen.clear()
+            store.set_setting("effects", 1)
+            tg.send(-1001, "🔔", effect="fire")  # в группах и каналах эффектов нет
+            self.assertNotIn("message_effect_id", seen[0])
+        finally:
+            tg.call = old
+            store.set_setting("effects", 1)
+
+
 if __name__ == "__main__":
     unittest.main()

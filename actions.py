@@ -33,7 +33,7 @@ FRESH = 120  # результат офиса моложе двух минут н
 def reward_hook(chat: int) -> None:
     """После любой награды: если открылась скидка за задания, сообщаем."""
     if rewards.unlock_discount(chat):
-        tg.send(chat, *views.discount_unlocked(chat))
+        tg.send(chat, *views.discount_unlocked(chat), effect="party")
 
 
 rewards.on_reward = reward_hook
@@ -104,7 +104,7 @@ def notify_inviter(inviter: int) -> None:
                                     "🎉 ¡Tu amigo ha cumplido las condiciones! Recoge el premio en «🎁 Bonos».",
                                     "🎉 Your friend met the conditions! Collect your reward in “🎁 Bonuses”."),
             tg.ikb([[tg.btn(views.tx(lang, "🎁 Бонусы", "🎁 Бонуси", "🎁 Bonos", "🎁 Bonuses"), "bn", "success"),
-                     tg.btn(views.tx(lang, "✖️ Скрыть", "✖️ Сховати", "✖️ Ocultar", "✖️ Hide"), "hide")]]))
+                     tg.btn(views.tx(lang, "✖️ Скрыть", "✖️ Сховати", "✖️ Ocultar", "✖️ Hide"), "hide")]]), effect="party")
 
 
 def report_signal(chat: int, province: str, doc: str) -> Tuple[str, int]:
@@ -121,7 +121,7 @@ def report_signal(chat: int, province: str, doc: str) -> Tuple[str, int]:
 def deliver_signal(sig: dict, targets: list) -> None:
     for chat in targets:
         if store.get_chat(chat).get("role") not in ("banned", "pending") and gate.allowed(chat):
-            tg.send(chat, *views.signal_alert(chat, sig), silent=checker.is_quiet(chat))
+            tg.send(chat, *views.signal_alert(chat, sig), silent=checker.is_quiet(chat), effect="fire")
             time.sleep(0.05)  # лимит Telegram — около 30 сообщений в секунду
 
 

@@ -57,6 +57,7 @@ h1, h2, h3, p { margin: 0; }
 @keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
 @keyframes shimmer { from { background-position: 120% 0; } to { background-position: -20% 0; } }
 @keyframes sheet { from { transform: translateY(100%); } to { transform: none; } }
+.confetti { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 99; pointer-events: none; }
 @keyframes blip { 0%, 100% { opacity: .15; transform: scale(.7); } 50% { opacity: 1; transform: scale(1); } }
 .view { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
 .view.fade { animation: fade .22s ease-out; }

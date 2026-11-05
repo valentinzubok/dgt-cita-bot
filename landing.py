@@ -239,8 +239,24 @@ footer{padding:56px 0 40px;color:var(--hint);font-size:14px}footer nav{display:f
 .list small,.crumbs{color:var(--hint);font-size:14px}.crumbs{margin:22px 0 -40px}.crumbs a{text-decoration:none}
 @media(max-width:860px){.hero{grid-template-columns:1fr;padding-top:36px}.phone{display:none}.stats{grid-template-columns:repeat(2,1fr)}h1{letter-spacing:-1px}
 .steps,.feats,.reviews{grid-template-columns:1fr}.plans{grid-template-columns:1fr}.school{flex-direction:column;align-items:flex-start}}
-@media(prefers-reduced-motion:reduce){.notif{animation:none}}
+.js .rv{opacity:0;transform:translateY(22px);transition:opacity .6s cubic-bezier(.2,.8,.2,1),transform .6s cubic-bezier(.2,.8,.2,1);transition-delay:var(--d,0s)}
+.js .rv.in{opacity:1;transform:none}
+.btn.main{position:relative;overflow:hidden}.btn.main:after{content:"";position:absolute;top:0;left:-60%;width:40%;height:100%;
+background:linear-gradient(100deg,transparent,rgba(255,255,255,.45),transparent);transform:skewX(-20deg);animation:shine 4.5s 1.2s ease-in-out infinite}
+@keyframes shine{0%,70%{left:-60%}100%{left:130%}}
+.phone{animation:float 6s ease-in-out infinite}@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+.badge:before{animation:beat 2s ease-out infinite}@keyframes beat{0%{box-shadow:0 0 0 0 rgba(15,183,138,.45)}100%{box-shadow:0 0 0 10px rgba(15,183,138,0)}}
+.step,.feat,.plan,.review,details,.stat{transition:transform .25s ease,box-shadow .25s ease}
+@media(hover:hover){.step:hover,.feat:hover,.plan:hover,.review:hover,.stat:hover{transform:translateY(-4px);box-shadow:0 14px 34px rgba(22,22,40,.12),0 0 0 1px var(--line)}}
+@media(prefers-reduced-motion:reduce){.notif,.phone,.badge:before,.btn.main:after{animation:none}.js .rv{opacity:1;transform:none;transition:none}}
 """
+# Появление блоков при прокрутке и счёт цифр. Без JS (и у поисковиков) всё видно сразу: прячем только под классом js
+JS = """<script>(function(){var d=document.documentElement;if(!("IntersectionObserver" in window)||matchMedia("(prefers-reduced-motion: reduce)").matches)return;
+d.classList.add("js");var items=document.querySelectorAll(".block>h2,.stat,.step,.feat,.plan,.review,details,.school,.list li,.lead,.ctas");
+var io=new IntersectionObserver(function(es){es.forEach(function(e){if(!e.isIntersecting)return;var el=e.target;el.classList.add("in");io.unobserve(el);
+var b=el.classList.contains("stat")&&el.querySelector("b");if(b){var m=/^(\\d+)(.*)$/.exec(b.textContent);if(m){var n=+m[1],s=m[2],t0=performance.now();
+(function f(t){var k=Math.min(1,(t-t0)/900);b.textContent=Math.round(n*(1-Math.pow(1-k,3)))+s;if(k<1)requestAnimationFrame(f)})(t0)}}})},{threshold:.12});
+items.forEach(function(el,i){el.classList.add("rv");el.style.setProperty("--d",(i%4)*0.07+"s");io.observe(el)})})();</script>"""
 
 
 def esc(s: object) -> str:
@@ -326,7 +342,7 @@ def render(lang: str) -> str:
 <div class="school"><div><h2>🏫 {esc(t['school'])}</h2><p>{esc(t['school_text'])}</p></div><a class="btn" href="{bot('school-web')}">{esc(t['school_btn'])}</a></div>
 <section class="block" id="faq"><h2>{esc(t['faq'])}</h2>{''.join(f'<details><summary>{esc(q)}</summary><p>{esc(fmt(a))}</p></details>' for q, a in t['faqs'])}</section>
 </main><footer class="wrap"><nav><a href="{bot(start)}">Telegram</a><a href="/dgt">🏢 {esc(t['offices'])}</a>{'<a href="/pasport">🛂 ' + esc(t['pas']) + '</a>' if t.get('pas') else ''}<a href="{channel()}">📢 {esc(store.setting('channel'))}</a>{chat_link(t)}</nav>
-<p>{esc(t['foot'])} © {time.strftime('%Y')} OkSita</p></footer></body></html>"""
+<p>{esc(t['foot'])} © {time.strftime('%Y')} OkSita</p></footer>{JS}</body></html>"""
 
 
 def chat_link(t: dict) -> str:
@@ -361,7 +377,7 @@ def shell(title: str, desc: str, path: str, body: str, ld: List[dict], lang: str
 <link rel="icon" href="/app/icon.png"><style>{CSS}</style>{scripts}</head><body>
 <header><div class="wrap bar"><a class="logo" href="{home}"><i>Ok</i><span><b>Ok</b>Sita</span></a><nav class="langs"><a href="/dgt">{short}</a>{extra}</nav></div></header>
 <main class="wrap">{body}</main><footer class="wrap"><nav><a href="{home}">{home_label}</a><a href="/dgt">🏢 {offices}</a><a href="{bot('web-' + lang)}">Telegram</a>{chat_link(T[lang])}</nav>
-<p>{esc(T[lang]['foot'])} © {time.strftime('%Y')} OkSita</p></footer></body></html>"""
+<p>{esc(T[lang]['foot'])} © {time.strftime('%Y')} OkSita</p></footer>{JS}</body></html>"""
 
 
 def office_page(cid: str) -> str:

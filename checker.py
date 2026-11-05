@@ -353,7 +353,7 @@ def process(cid: str, area: str, results: Optional[list], err, cards: Dict[int, 
                 gate.shown(chat, tg.show(chat, *views.gate_view(chat, missed=True), banner=views.banner("gate")))
         elif new:
             tg.delete(chat, sub.get("alert_msg"))  # в чате остаётся только свежее уведомление
-            mid = tg.send(chat, *views.alert(sub, results, new), silent=is_quiet(chat))
+            mid = tg.send(chat, *views.alert(sub, results, new), silent=is_quiet(chat), effect="fire")
             store.update_sub(sub["id"], alert_msg=mid)
             status["alerts"] += 1
             store.bump("alerts")
@@ -421,7 +421,8 @@ def send_reminders() -> None:
         else:
             continue
         tg.delete(sub["chat"], sub.get("alert_msg"))
-        mid = tg.send(sub["chat"], *(views.review_ask(sub) if when == "review" else views.reminder(sub, when)), silent=when == "review")
+        mid = tg.send(sub["chat"], *(views.review_ask(sub) if when == "review" else views.reminder(sub, when)), silent=when == "review",
+                      effect="like" if when == "day" else None)
         store.update_sub(sub["id"], reminded=bits, alert_msg=mid)
 
 

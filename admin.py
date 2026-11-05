@@ -917,6 +917,7 @@ def settings() -> Tuple[str, dict]:
     s = store.setting
     interval, fast, free, top = s("interval"), s("interval_premium"), s("free_subs"), s("max_subs")
     paused, approval, notify, maint, report = s("checks_paused"), s("access") == "approval", s("notify_new"), s("maintenance"), s("daily_report")
+    effects = s("effects")
     mark = lambda on: "🟢" if on else "⚪️"  # noqa: E731
     text = ("⚙️ <b>Настройки бота</b>\n\n<blockquote>"
             f"⏱ Проверка: бесплатно <b>{interval} мин</b> · Premium <b>{fast} мин</b>\n"
@@ -938,6 +939,7 @@ def settings() -> Tuple[str, dict]:
          btn("🚧 Выключить техработы" if maint else "🚧 Включить техработы", "ad:sw", "danger" if maint else None)],
         [btn("🚪 Сделать открытым" if approval else "🔐 Доступ по одобрению", "ad:sa")],
         [btn(f"{mark(notify)} Новые", "ad:sn"), btn(f"{mark(report)} Отчёт в 21:00", "ad:sr")],
+        [btn(f"{mark(effects)} Анимации Telegram: 🔥 даты, 🎉 оплата", "ad:se")],
         [BACK],
     ])
 
@@ -1498,8 +1500,8 @@ def on_callback(chat: int, mid: int, data: str) -> Optional[str]:
         store.set_setting(key, int(rest))
         checker.event(f"⚙️ {key}: {rest}")
         tg.show(chat, *settings(), mid=mid)
-    elif kind in ("sp", "sw", "sn", "sr"):
-        key = {"sp": "checks_paused", "sw": "maintenance", "sn": "notify_new", "sr": "daily_report"}[kind]
+    elif kind in ("sp", "sw", "sn", "sr", "se"):
+        key = {"sp": "checks_paused", "sw": "maintenance", "sn": "notify_new", "sr": "daily_report", "se": "effects"}[kind]
         store.set_setting(key, 0 if store.setting(key) else 1)
         checker.event(f"⚙️ {key}: {'да' if store.setting(key) else 'нет'}")
         tg.show(chat, *settings(), mid=mid)

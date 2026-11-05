@@ -50,15 +50,22 @@ def _preview(banner: Optional[str]) -> dict:
     return {"is_disabled": True}
 
 
+# Анимация поверх сообщения в личном чате (message_effect_id). Если Telegram её не примет, сообщение уходит без неё
+EFFECTS = {"party": "5046509860389126442", "fire": "5104841245755180586", "like": "5107584321108051014", "heart": "5159385139981059251"}
+
+
 def send(chat: int, text: str, kb: Optional[dict] = None, silent: bool = False, banner: Optional[str] = None,
          effect: Optional[str] = None) -> Optional[int]:
     p = {"chat_id": chat, "text": text, "parse_mode": "HTML", "link_preview_options": _preview(banner),
          "disable_notification": silent}
     if kb is not None:
         p["reply_markup"] = kb
-    if effect:
-        p["message_effect_id"] = effect
+    if effect and chat > 0 and store.setting("effects"):
+        p["message_effect_id"] = EFFECTS.get(effect, effect)
     data = call("sendMessage", **p)
+    if data and not data.get("ok") and "message_effect_id" in p and data.get("error_code") == 400:
+        p.pop("message_effect_id")  # эффект не дошёл — главное, чтобы дошло сообщение
+        data = call("sendMessage", **p)
     if data and data.get("error_code") == 403:  # пользователь заблокировал бота
         store.pause_chat(chat)
     return data["result"]["message_id"] if data and data.get("ok") else None

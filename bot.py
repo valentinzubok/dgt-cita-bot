@@ -569,7 +569,7 @@ def on_paid(msg: dict) -> None:
     checker.notify_admins(f"💰 <b>Оплата</b>\n{admin.uname(c)} — {premium.PLANS[plan]['days']} дн., {stars} ⭐",
                           [[btn("👤 Карточка", f"ad:uc:{chat}")]])
     tg.send(chat, views.thanks_text(lang, plan, c.get("premium_until") or 0), ikb([[views.home_btn(lang)]]),
-            effect=premium.BOOKED_EFFECT)
+            effect="party")
 
 
 def on_callback(cb: dict) -> None:

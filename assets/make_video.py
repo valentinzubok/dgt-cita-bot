@@ -1,6 +1,7 @@
 """Короткое вертикальное видео для Reels, TikTok и Shorts (1080×1920, 14 секунд, без музыки — её добавляют в приложении).
-Кадры рисует Chrome через Playwright, видео собирает ffmpeg. Результат: promo/video/oksita_uk.mp4, _ru, _es.
-Запуск: python3 assets/make_video.py [uk ru es]   (нужны pip install playwright, Google Chrome и ffmpeg)"""
+Кадры рисует Chrome через Playwright, видео собирает ffmpeg. Результат: promo/video/oksita_uk.mp4, _ru, _es,
+а про очередь ДП «Документ» — oksita_uk_pas.mp4 и oksita_ru_pas.mp4.
+Запуск: python3 assets/make_video.py [uk ru es uk_pas ru_pas]   (нужны pip install playwright, Google Chrome и ffmpeg)"""
 import json
 import shutil
 import subprocess
@@ -28,6 +29,24 @@ TEXT = {
                now="ahora", day="lunes, 3 de noviembre", how="OkSita revisa<br><b>la web de la DGT por ti</b>",
                points=["68 oficinas en toda España", "Gratis, sin NIE", "Aviso directo en Telegram"], cta="Búscalo en Telegram", free="Gratis"),
 }
+
+DGT = dict(site="sede.dgt.gob.es", empty_sub="Cita previa · Jefatura de Tráfico")
+TEXT.update({
+    "uk_pas": dict(hook="Чекаєш талон<br><b>у ДП «Документ»?</b>", empty="Наразі всі місця зайняті", site="pasport.org.ua",
+                   empty_sub="Електронна черга · Паспортний сервіс", refresh="Оновлюєш сторінку щодня…",
+                   alert="🟢 БАЧАТЬ ТАЛОНИ!", office="🛂 Паспорт України · Madrid", days="👤 Сигнал від того, хто теж чекає",
+                   hours="👉 Відкрий офіційну чергу", now="зараз", day="понеділок, 3 листопада",
+                   how="Люди діляться<br><b>сигналом про талони</b>",
+                   points=["Мадрид · Барселона · Валенсія", "Безкоштовно, без даних паспорта", "Запис лише на офіційному сайті"],
+                   cta="Знайди в Telegram", free="Безкоштовно"),
+    "ru_pas": dict(hook="Ждёшь талон<br><b>в ДП «Документ»?</b>", empty="Наразі всі місця зайняті", site="pasport.org.ua",
+                   empty_sub="Электронная очередь · Паспортный сервис", refresh="Обновляешь страницу каждый день…",
+                   alert="🟢 ВИДЯТ ТАЛОНЫ!", office="🛂 Паспорт Украины · Madrid", days="👤 Сигнал от того, кто тоже ждёт",
+                   hours="👉 Открой официальную очередь", now="сейчас", day="понедельник, 3 ноября",
+                   how="Люди делятся<br><b>сигналом о талонах</b>",
+                   points=["Мадрид · Барселона · Валенсия", "Бесплатно, без данных паспорта", "Запись только на официальном сайте"],
+                   cta="Найди в Telegram", free="Бесплатно"),
+})
 
 PAGE = """<!doctype html><meta charset="utf-8"><style>
 *{box-sizing:border-box;margin:0}html,body{width:1080px;height:1920px;overflow:hidden;background:#0d0d12}
@@ -62,8 +81,8 @@ h1{font-size:118px;line-height:1.02;letter-spacing:-4px;font-weight:850;text-ali
 .sub{font-size:48px;font-weight:650;opacity:.9}
 </style><div class="bg"></div><div class="glow"></div>
 <div class="s" id="hook" style="top:300px"><h1>{hook}</h1></div>
-<div class="s" id="site"><div class="browser"><div class="bar"><i></i><i></i><i></i><span class="url">sede.dgt.gob.es</span></div>
-<div class="empty">😕 {empty}<small>Cita previa · Jefatura de Tráfico</small></div></div><div class="f5" id="f5">↻</div>
+<div class="s" id="site"><div class="browser"><div class="bar"><i></i><i></i><i></i><span class="url">{site}</span></div>
+<div class="empty">😕 {empty}<small>{empty_sub}</small></div></div><div class="f5" id="f5">↻</div>
 <div class="caption">{refresh}</div></div>
 <div class="s" id="lock" style="top:0;bottom:0"><div class="phone"><div class="wall"></div><div class="isl"></div><div class="day">{day}</div><div class="clock">9:41</div>
 <div class="nf" id="nf"><div class="top"><span class="ic">{logo}</span><span>OkSita</span><span>{now}</span></div><div class="t">{alert}</div>
@@ -107,7 +126,7 @@ seek(0);
 
 
 def page(lang: str) -> str:
-    t = TEXT[lang]
+    t = {**DGT, **TEXT[lang]}
     points = "".join(f'<div class="pt"><i>✓</i><span>{p}</span></div>' for p in t["points"])
     html = PAGE
     for key, value in {**t, "points": points, "logo": LOGO}.items():

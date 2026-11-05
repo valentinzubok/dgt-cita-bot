@@ -98,6 +98,44 @@ const plain = (text) => text.replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").repla
 const tone = (state) => TONES[state] || "";
 const haptic = (kind) => { try { tg.HapticFeedback.impactOccurred(kind || "light"); } catch (e) { /* не в Telegram */ } };
 const success = () => { try { tg.HapticFeedback.notificationOccurred("success"); } catch (e) { /* не в Telegram */ } };
+const failure = () => { try { tg.HapticFeedback.notificationOccurred("error"); } catch (e) { /* не в Telegram */ } };
+const tick = () => { try { tg.HapticFeedback.selectionChanged(); } catch (e) { /* не в Telegram */ } };
+const calm = () => window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Конфетти на важный успех: запись, оплата, объявление, подписка на канал. Свой холст поверх всего, сам исчезает
+function confetti() {
+  if (calm()) return;
+  const canvas = h("canvas", { class: "confetti" });
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const W = innerWidth, H = innerHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  document.body.append(canvas);
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  const colors = ["#ff2d55", "#ff6b2c", "#ffb627", "#ffe34d", "#16c784", "#2aabee", "#7a5cff"];
+  const bits = Array.from({ length: 110 }, (_, i) => {
+    const side = i % 2 ? 1 : -1;
+    return { x: W / 2 + side * W * 0.18, y: H * 0.42, vx: side * (2 + Math.random() * 6) * -1 + (Math.random() - 0.5) * 6, vy: -(7 + Math.random() * 9),
+             w: 6 + Math.random() * 6, h: 8 + Math.random() * 8, r: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.35,
+             c: colors[i % colors.length], round: Math.random() < 0.25 };
+  });
+  const start = performance.now();
+  const frame = (now) => {
+    const t = now - start;
+    ctx.clearRect(0, 0, W, H);
+    for (const b of bits) {
+      b.vy += 0.32; b.vx *= 0.985; b.vy *= 0.985; b.x += b.vx; b.y += b.vy; b.r += b.vr;
+      ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.r);
+      ctx.globalAlpha = Math.max(0, 1 - t / 1900);
+      ctx.fillStyle = b.c;
+      if (b.round) { ctx.beginPath(); ctx.arc(0, 0, b.w / 2, 0, 7); ctx.fill(); } else ctx.fillRect(-b.w / 2, -b.h / 2, b.w, b.h * Math.abs(Math.cos(b.r * 2)) + 2);
+      ctx.restore();
+    }
+    if (t < 1900) requestAnimationFrame(frame); else canvas.remove();
+  };
+  requestAnimationFrame(frame);
+}
+const celebrate = () => { success(); confetti(); };
 const iconOf = (s) => (s.state === "free" || s.state === "full" || s.state === "later" ? AREA_ICONS[s.icon] : STATE_ICONS[s.state] || AREA_ICONS[s.icon]) || "doc";
 
 function date(iso, opts) {
@@ -127,6 +165,7 @@ function rich(html) {
 function toast(text, kind) {
   const old = layer.querySelector(".toast");
   if (old) old.remove();
+  if (kind === "bad") failure();
   const el = h("div", { class: "toast " + (kind || "") }, plain(text));
   layer.append(el);
   setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 260); }, 3000);
@@ -175,7 +214,7 @@ function pop() { stack.pop(); haptic(); render("pop"); }
 function setTab(id) {
   if (id === tab && !stack.length) return;
   tab = id; stack.length = 0; scrolls.length = 0;
-  haptic();
+  tick();
   render("fade");
 }
 function syncChrome() {
@@ -583,7 +622,7 @@ function bookSheet(s) {
       h("button", { class: "btn success", onclick: async () => {
         try {
           await api(`subs/${s.id}/book`, { date: day, time });
-          close(); success(); await load(); toast(L.bookSaved, "ok");
+          close(); celebrate(); await load(); toast(L.bookSaved, "ok");
         } catch (e) { toast(L.failed, "bad"); }
       } }, ico("check", 18), L.save));
   });
@@ -794,7 +833,7 @@ function promoBox() {
     if (!code) return;
     try {
       const { status, text } = await api("promo", { code });
-      if (status === "ok") { success(); input.value = ""; await load(); }
+      if (status === "ok") { celebrate(); input.value = ""; await load(); }
       toast(text, status === "ok" ? "ok" : "bad");
     } catch (e) { toast(L.failed, "bad"); }
   };
@@ -856,7 +895,7 @@ function planCards() {
 async function buy(plan) {
   try {
     const { link } = await api("invoice", { plan });
-    tg.openInvoice(link, (status) => { if (status === "paid") { success(); setTimeout(() => load("fade"), 1500); } });
+    tg.openInvoice(link, (status) => { if (status === "paid") { celebrate(); setTimeout(() => load("fade"), 1500); } else if (status === "failed") failure(); });
   } catch (e) { toast(e.code === 400 ? L.siteDown : L.failed, "bad"); }
 }
 function cancelRenew() {
@@ -923,7 +962,7 @@ async function startTrial(close) {
   try {
     await api("trial", {});
     close();
-    success();
+    celebrate();
     await load("fade");
     welcomeSheet();
   } catch (e) {
@@ -1127,7 +1166,7 @@ async function submitPost(button) {
   }
 }
 function postDone() {
-  success();
+  celebrate();
   Object.assign(POST, { text: "", photo: null, uploaded: false, draft: null });
   stack.length = 0;
   if (!me.premium) stack.push(boardScreen);
@@ -1147,7 +1186,7 @@ function gateScreen() {
     busy = true;
     try {
       const { ok } = await api("gate", {});
-      if (ok) { clearInterval(gateTimer); success(); toast(L.gateThanks, "ok"); await load("fade"); }
+      if (ok) { clearInterval(gateTimer); celebrate(); toast(L.gateThanks, "ok"); await load("fade"); }
       else if (!quiet) toast(L.gateNotYet, "bad");
     } catch (e) { if (!quiet) toast(L.failed, "bad"); }
     busy = false;
