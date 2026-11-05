@@ -26,6 +26,7 @@ import config
 import dgt
 import gate
 import group
+import hourstar
 import landing
 import premium
 import radar
@@ -163,7 +164,7 @@ def me_payload(chat: int) -> dict:
             "autoRenew": bool(c.get("sub_active")), "limit": premium.limit_subs(chat), "bot": config.BOT_USERNAME, "bookUrl": dgt.START_URL,
             "trial": premium.can_trial(chat), "trialDays": views.trial_days(lang), "inTrial": premium.in_trial(chat),
             "guarantee": premium.guarantee_state(chat), "channel": channel.link(), "channelName": channel.username(),
-            "gate": not gate.allowed(chat), "group": group.link(),
+            "gate": not gate.allowed(chat), "group": group.link(), "hourstar": hourstar.link("app"),
             "outage": checker.site_down(), "quiet": bool(c.get("quiet")), "adsOk": bool(c.get("ads_ok")), "plans": plans_payload(chat),
             "free": {"subs": store.setting("free_subs"), "interval": checker.check_minutes(False), "signals": signals.FREE_SUBS},
             "top": {"subs": store.setting("max_subs"), "interval": checker.check_minutes(True), "signals": signals.TOP_SUBS}}

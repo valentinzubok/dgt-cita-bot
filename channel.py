@@ -10,7 +10,9 @@ from typing import Callable, Dict, List, Optional, Tuple
 import config
 import dgt
 import group
+import hourstar
 import posts
+import premium
 import store
 import tg
 import views
@@ -260,18 +262,38 @@ def plan_drafts(now: Optional[datetime] = None) -> int:
     return n
 
 
+def template_values() -> dict:
+    return {"free": store.setting("free_subs"), "top": store.setting("max_subs"), "trial": int(store.setting("trial_hours")) // 24,
+            "ad": store.setting("post_ad"), "steps": store.setting("discount_tasks"), "pct": store.setting("discount_pct"),
+            "g": premium.GUARANTEE_FROM}
+
+
+def template_payload(t: dict) -> dict:
+    return {"type": "photo", "file": "static:" + t["image"], "text": posts.fill(t["text"], template_values()), "html": True}
+
+
+def template_link(t: dict) -> Optional[str]:
+    """Кнопка поста: в бота с меткой или, у поста про Hour Star, во второй бот (None, пока его имя не указано)."""
+    return hourstar.link("channel") if t.get("partner") else bot_link(t["start"])
+
+
+def template_kb(t: dict) -> Optional[dict]:
+    link = template_link(t)
+    return ikb([[url(t["button"], link, "primary")]]) if link else None
+
+
+def add_template(t: dict) -> Optional[dict]:
+    """Черновик из готового поста. Пост про Hour Star без имени бота не создаётся: у него не было бы кнопки."""
+    link = template_link(t)
+    if not link:
+        return None
+    return store.add_queued(template_payload(t), t["button"], link, t["tag"])
+
+
 def add_templates() -> int:
     """Кладёт в черновики готовые посты, которых ещё не было. Сами посты не выходят, пока админ не выберет время."""
     have = store.queued_tags()
-    values = {"free": store.setting("free_subs"), "top": store.setting("max_subs"), "trial": int(store.setting("trial_hours")) // 24,
-              "ad": store.setting("post_ad"), "steps": store.setting("discount_tasks"), "pct": store.setting("discount_pct")}
-    n = 0
-    for t in posts.TEMPLATES:
-        if t["tag"] not in have:
-            store.add_queued({"type": "photo", "file": "static:" + t["image"], "text": posts.fill(t["text"], values), "html": True},
-                             t["button"], bot_link(t["start"]), t["tag"])
-            n += 1
-    return n
+    return sum(1 for t in posts.TEMPLATES if t["tag"] not in have and add_template(t))
 
 
 def preview_line(row: dict) -> str:

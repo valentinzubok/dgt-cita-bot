@@ -71,6 +71,11 @@ THEMES = {
     "school": ("linear-gradient(135deg,#FF2D55 0%,#FF6B2C 50%,#7A1FA2 100%)", "#FFE34D", "#FF2D55"),
     "app": ("linear-gradient(135deg,#0B3C8C 0%,#1C7CE0 55%,#2AABEE 100%)", "#FFE34D", "#1C7CE0"),
     "passport": ("linear-gradient(135deg,#0A2A6B 0%,#1652C8 58%,#2E7CF6 100%)", "#FFD60A", "#1652C8"),
+    "hourstar": ("linear-gradient(135deg,#0B1026 0%,#2A1B5E 55%,#B8860B 100%)", "#FFD34D", "#2A1B5E"),
+    "spain": ("linear-gradient(135deg,#7A0C1C 0%,#D6243A 52%,#F5A301 100%)", "#FFE34D", "#C61A30"),
+    "calendar": ("linear-gradient(135deg,#3A0CA3 0%,#7209B7 52%,#F72585 100%)", "#FFE34D", "#7209B7"),
+    "consul": ("linear-gradient(135deg,#0A2A6B 0%,#1652C8 60%,#3D8BFF 100%)", "#FFD60A", "#1652C8"),
+    "guarantee": ("linear-gradient(135deg,#04342C 0%,#0B7A5E 55%,#16C784 100%)", "#FFE34D", "#0B7A5E"),
 }
 
 TEXT = {
@@ -147,6 +152,60 @@ TEXT.update({
     },
 })
 
+TEXT.update({
+    "hourstar": {
+        "uk": dict(h="Рахуєш години?<br><b>Бот порахує заробіток</b>", sub="Hour Star — другий бот від автора OkSita",
+                   chips=["📝 Години за день", "⏱ Таймер зміни", "📊 Звіти"], cta="Безкоштовно · <i>Hour Star</i>", brand="hs",
+                   log=("Тиждень · 12 €/год", [("Пн", "8 год 30 хв", "102 €"), ("Вт", "7 год", "84 €"), ("Ср", "9 год 15 хв", "111 €"),
+                                               ("Чт", "8 год", "96 €")], ("Разом", "32 год 45 хв", "393 €"))),
+        "ru": dict(h="Считаешь часы?<br><b>Бот посчитает заработок</b>", sub="Hour Star — второй бот от автора OkSita",
+                   chips=["📝 Часы за день", "⏱ Таймер смены", "📊 Отчёты"], cta="Бесплатно · <i>Hour Star</i>", brand="hs",
+                   log=("Неделя · 12 €/ч", [("Пн", "8 ч 30 мин", "102 €"), ("Вт", "7 ч", "84 €"), ("Ср", "9 ч 15 мин", "111 €"),
+                                            ("Чт", "8 ч", "96 €")], ("Итого", "32 ч 45 мин", "393 €"))),
+    },
+    "spain": {
+        "uk": dict(h="Корисне<br><b>в Іспанії</b>", sub="Офіційні сайти в одному місці — без посередників",
+                   chips=["🏠 Padrón", "🔑 Cl@ve", "💼 SEPE"], cta="Корисне · <i>@oksitabot</i>",
+                   list=[("🔑", "Cl@ve", "держпослуги онлайн"), ("🏥", "Import@ss", "NUSS, vida laboral"), ("💼", "SEPE", "допомога, запис"),
+                         ("🧾", "Hacienda", "податки, renta"), ("🪪", "Tasa 790-012", "збір за TIE")]),
+        "ru": dict(h="Полезное<br><b>в Испании</b>", sub="Официальные сайты в одном месте — без посредников",
+                   chips=["🏠 Padrón", "🔑 Cl@ve", "💼 SEPE"], cta="Полезное · <i>@oksitabot</i>",
+                   list=[("🔑", "Cl@ve", "госуслуги онлайн"), ("🏥", "Import@ss", "NUSS, vida laboral"), ("💼", "SEPE", "пособие, запись"),
+                         ("🧾", "Hacienda", "налоги, renta"), ("🪪", "Tasa 790-012", "пошлина за TIE")]),
+    },
+    "calendar": {
+        "uk": dict(h="Записався?<br><b>Візит — у календар</b>", sub="Google Календар або iPhone — одним натисканням",
+                   chips=["📅 Google", "🍏 iPhone / Outlook", "🔔 Нагадування"], cta="<i>@oksitabot</i>",
+                   event=("ЛИСТОПАД", "12", "четвер", "Cita DGT · Exámenes", "Murcia · 09:30–10:30", "🔔 за 2 години")),
+        "ru": dict(h="Записался?<br><b>Визит — в календарь</b>", sub="Google Календарь или iPhone — одним нажатием",
+                   chips=["📅 Google", "🍏 iPhone / Outlook", "🔔 Напоминание"], cta="<i>@oksitabot</i>",
+                   event=("НОЯБРЬ", "12", "четверг", "Cita DGT · Exámenes", "Murcia · 09:30–10:30", "🔔 за 2 часа")),
+    },
+    "consul": {
+        "uk": dict(h="Консульство?<br><b>Сигнал про вільний час</b>", sub="Хтось побачив вільний час на е-Консулі — тобі одразу приходить сигнал",
+                   chips=["🏛 Мадрид", "🏛 Барселона", "📧 Лист очікування"], cta="Консульство · <i>@oksitabot</i>",
+                   sig=("🏛 Консульство України · Madrid", "🟢 Бачать вільний час · щойно")),
+        "ru": dict(h="Консульство?<br><b>Сигнал о свободном времени</b>", sub="Кто-то увидел свободное время на е-Консуле — тебе сразу приходит сигнал",
+                   chips=["🏛 Мадрид", "🏛 Барселона", "📧 Лист ожидания"], cta="Консульство · <i>@oksitabot</i>",
+                   sig=("🏛 Консульство Украины · Madrid", "🟢 Видят свободное время · только что")),
+    },
+    "guarantee": {
+        "uk": dict(h="Premium<br><b>з гарантією</b>", sub="Немає жодного сповіщення за 7 днів — повернемо зірки",
+                   chips=["⚡️ Частіша перевірка", "🏢 До 10 офісів", "📡 Радар 250 км"], cta="Premium · <i>@oksitabot</i>", badge=("7", "днів")),
+        "ru": dict(h="Premium<br><b>с гарантией</b>", sub="Нет ни одного уведомления за 7 дней — вернём звёзды",
+                   chips=["⚡️ Проверка чаще", "🏢 До 10 офисов", "📡 Радар 250 км"], cta="Premium · <i>@oksitabot</i>", badge=("7", "дней")),
+    },
+})
+
+HS_LOGO = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512"><defs><linearGradient id="hs" x1="0" y1="0" x2="1" y2="1">'
+           '<stop offset="0" stop-color="#3B2A8F"/><stop offset="1" stop-color="#F5B301"/></linearGradient></defs><rect width="512" height="512" fill="url(#hs)"/>'
+           '<circle cx="256" cy="272" r="150" fill="none" stroke="#fff" stroke-width="40"/><path d="M256 182v96l62 38" fill="none" stroke="#fff" stroke-width="40" '
+           'stroke-linecap="round" stroke-linejoin="round"/><path d="M392 70l13 27 30 4-22 21 5 30-26-14-27 14 5-30-22-21 30-4z" fill="#FFE34D"/></svg>')
+SHIELD = ('<svg viewBox="0 0 300 340" width="300" height="340" style="filter:drop-shadow(0 20px 40px rgba(0,0,0,.3))">'
+          '<path d="M150 12l122 46v92c0 82-52 142-122 172C80 292 28 232 28 150V58z" fill="#fff"/>'
+          '<path d="M150 44l94 35v71c0 64-40 110-94 134-54-24-94-70-94-134V79z" fill="#D9FBEF"/>'
+          '<path d="M95 172l40 40 75-84" fill="none" stroke="#0B7A5E" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+
 
 def qr_svg(link: str, size: int) -> str:
     import io
@@ -218,6 +277,45 @@ def art(kind: str, lang: str, t: dict) -> str:
                 f'<div style="font-size:23px;line-height:1.35;margin-top:10px;color:#2a2a35">{text}</div>'
                 '<div style="font-size:20px;margin-top:12px;color:#8a8a93;font-style:italic">📌 @oksitabot</div></div></div>'
                 '<div class="badge" style="left:430px;top:0;width:130px;height:130px;background:#16C784;color:#fff;font-size:64px">✓</div>')
+    if kind == "hourstar":
+        head, days, total = t["log"]
+        line = lambda d, hrs, eur, last=False: (f'<div class="row" style="font-size:25px;padding:13px 0;border-top:2px solid #EDEDF2;'  # noqa: E731
+                                                 f'{"background:#FFF6D6;margin:0 -28px;padding:15px 28px;border-radius:0 0 30px 30px;font-weight:800" if last else ""}">'
+                                                 f'<span style="width:100px;color:#6B6B76">{d}</span><span style="flex:1">{hrs}</span><span style="font-weight:800">{eur}</span></div>')
+        rows = "".join(line(*r) for r in days) + line(*total, last=True)
+        return (f'<div class="card" style="left:30px;top:30px;width:500px;padding:20px 28px 0;overflow:hidden">'
+                f'<div style="font-size:22px;font-weight:700;color:#6B6B76;padding-bottom:12px">{head}</div>{rows}</div>'
+                '<div class="badge" style="left:440px;top:-14px;width:120px;height:120px;background:#FFD34D;color:#2A1B5E;font-size:64px">⏱</div>')
+    if kind == "spain":
+        rows = "".join(f'<div class="row" style="font-size:26px;padding:14px 0;border-top:{"0" if i == 0 else "2px solid #EDEDF2"}">'
+                       f'<span style="font-size:34px;width:46px">{e}</span><span>{name}<div style="font-size:19px;font-weight:600;color:#6B6B76;margin-top:2px">{hint}</div></span></div>'
+                       for i, (e, name, hint) in enumerate(t["list"]))
+        return (f'<div class="card" style="left:40px;top:20px;width:480px;padding:16px 30px">{rows}</div>'
+                '<div class="badge" style="left:430px;top:-10px;width:120px;height:120px;background:#FFE34D;color:#C61A30;font-size:46px">ES</div>')
+    if kind == "calendar":
+        month, day, weekday, title, place, alarm = t["event"]
+        return (f'<div class="card" style="left:40px;top:20px;width:480px;padding:0;overflow:hidden">'
+                f'<div style="background:#F72585;color:#fff;padding:14px 26px;font-size:22px;font-weight:800;letter-spacing:2px">{month}</div>'
+                f'<div style="display:flex;align-items:center;gap:20px;padding:20px 26px 6px"><div style="font-size:84px;font-weight:800;line-height:1">{day}</div>'
+                f'<div style="font-size:24px;font-weight:600;color:#6B6B76">{weekday}</div></div>'
+                f'<div style="margin:12px 26px 26px;border-left:8px solid #7209B7;background:#F3E8FF;border-radius:14px;padding:16px 20px">'
+                f'<div style="font-size:25px;font-weight:800">{title}</div><div style="font-size:21px;font-weight:600;margin-top:6px;color:#33333C">{place}</div>'
+                f'<div style="font-size:20px;font-weight:700;margin-top:10px;color:#7209B7">{alarm}</div></div></div>'
+                '<div class="pill" style="left:60px;top:372px;height:62px;padding:0 24px;font-size:24px">📅 Google</div>'
+                '<div class="pill" style="left:250px;top:372px;height:62px;padding:0 24px;font-size:24px">🍏 iPhone</div>')
+    if kind == "consul":
+        a, b = t["sig"]
+        return (f'<div style="position:absolute;left:60px;top:10px">{CARD}</div>'
+                '<svg style="position:absolute;left:0;top:250px" width="560" height="330"><g fill="none" stroke="#FFD60A" stroke-opacity=".5" stroke-width="5">'
+                '<ellipse cx="280" cy="170" rx="250" ry="120"/><ellipse cx="280" cy="170" rx="190" ry="88" stroke-opacity=".7"/></g></svg>'
+                f'<div class="card" style="left:20px;top:340px;width:520px;padding:22px 26px"><div style="font-size:24px;font-weight:800">{a}</div>'
+                f'<div style="font-size:22px;font-weight:600;margin-top:8px;color:#0B8A5A">{b}</div></div>')
+    if kind == "guarantee":
+        top, bottom = t["badge"]
+        return (f'<div style="position:absolute;left:110px;top:40px">{SHIELD}</div>'
+                f'<div class="badge" style="left:380px;top:10px;width:170px;height:170px;background:#FFE34D;color:#0B7A5E;font-size:64px">'
+                f'<div>{top}<div style="font-size:30px;margin-top:6px">{bottom}</div></div></div>'
+                '<div class="badge" style="left:30px;top:340px;width:140px;height:140px;background:#fff;color:#0B7A5E;font-size:58px">⭐</div>')
     return ""
 
 
@@ -228,15 +326,16 @@ def page(kind: str, lang: str, layout: str) -> str:
     sub = f'<div class="sub">{t["sub"]}</div>' if t.get("sub") else ""
     return (f'<!doctype html><meta charset="utf-8"><style>{CSS}</style>'
             f'<div class="c {layout}" style="background:{bg};--accent:{accent};--cta:{cta}">{GLOW}{RINGS}'
-            f'<div class="brand"><span class="logo">{LOGO}</span>OkSita</div>'
+            f'<div class="brand"><span class="logo">{HS_LOGO if t.get("brand") == "hs" else LOGO}</span>{"Hour Star" if t.get("brand") == "hs" else "OkSita"}</div>'
             f'<div class="txt"><div class="h">{t["h"]}</div>{sub}{chips if layout == "ls" else ""}</div>'
             f'{chips if layout == "sq" else ""}<div class="art">{art(kind, lang, t)}</div>'
             f'<div class="cta">{t["cta"]}</div></div>')
 
 
 CHANNEL = {"post_how": "hero", "post_trial": "trial", "post_radar": "radar", "post_tips": "tips", "post_docs": "docs",
-           "post_jobs": "jobs", "post_friends": "friends", "post_school": "school", "post_app": "app", "post_passport": "passport"}
-PROMOS = ("hero", "trial", "radar", "docs", "tips", "jobs", "school", "app", "passport")
+           "post_jobs": "jobs", "post_friends": "friends", "post_school": "school", "post_app": "app", "post_passport": "passport",
+           "post_hourstar": "hourstar", "post_spain": "spain", "post_calendar": "calendar", "post_consul": "consul", "post_guarantee": "guarantee"}
+PROMOS = ("hero", "trial", "radar", "docs", "tips", "jobs", "school", "app", "passport", "hourstar", "spain", "calendar", "consul", "guarantee")
 
 
 def main(only):

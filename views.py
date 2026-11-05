@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import config
 import dgt
+import hourstar
 import premium
 import rewards
 import signals
@@ -494,6 +495,8 @@ def dashboard(chat: int, name: str = "", next_check: Optional[int] = None, note:
                                                                                  "🇺🇦 Para ucranianos",
                                                                                  "🇺🇦 For Ukrainians"), "ua")])
     rows.append([btn(board_btn(lang), "jb"), btn(tx(lang, "📚 Полезное", "📚 Корисне", "📚 Útil", "📚 Useful"), "sp")])
+    if hourstar.ready():
+        rows.append([btn(hourstar_label(lang), "hs")])
     if is_admin(chat):
         rows.append([btn("🛠 Админ-панель", "ad")])
     return "\n".join(lines), ikb(rows)
@@ -1659,8 +1662,73 @@ def spain_view(chat: int) -> Tuple[str, dict]:
          url(tx(lang, "💼 Запись: SEPE", "💼 Запис: SEPE", "💼 Cita SEPE", "💼 SEPE booking"), signals.OTHER_URLS["sep"])],
         [url("🧾 Hacienda", SPAIN_LINKS["aeat"]), url("🪪 Tasa 790-012", SPAIN_LINKS["tasa"])],
         [url("🚗 DGT", DGT_SEDE), url("🇺🇦 Ucrania Urgente", SPAIN_LINKS["ucrania"])],
+        [btn(hourstar_label(lang), "hs:sp")] if hourstar.ready() else [],
         [btn(tx(lang, "🛂 Документы", "🛂 Документи", "🛂 Documentos", "🛂 Documents"), "dc"), home_btn(lang)],
     ])
+
+
+# ---------- Hour Star: второй бот автора ----------
+
+def hourstar_label(lang: str) -> str:
+    return tx(lang, "⏱ Hour Star · учёт рабочих часов", "⏱ Hour Star · облік робочих годин",
+              "⏱ Hour Star · control de horas", "⏱ Hour Star · work hours")
+
+
+def hourstar_banner() -> Optional[str]:
+    return f"{config.PUBLIC_URL}/static/{hourstar.IMAGE}?v={config.VERSION}" if config.PUBLIC_URL else None
+
+
+def hourstar_view(chat: int, back: str = "") -> Tuple[str, dict]:
+    """Экран о Hour Star. back — откуда пришли: sp («Полезное») или пусто (главное меню)."""
+    lang = lang_of(chat)
+    text = tx(lang,
+              "⏱ <b>Hour Star</b> · учёт рабочих часов\n\n"
+              "Второй бот от автора OkSita — для всех, кто работает по часам.\n\n"
+              "<blockquote>📝 Записываешь часы за день — бот считает заработок по твоей ставке\n"
+              "📊 Видно, сколько отработал и заработал за неделю и месяц\n"
+              "⏱ Таймер смены: запустил на работе, остановил после\n"
+              "🔔 Premium: напоминания о сменах по твоему графику</blockquote>\n"
+              "Бесплатно, прямо в Telegram. Premium — по желанию.",
+              "⏱ <b>Hour Star</b> · облік робочих годин\n\n"
+              "Другий бот від автора OkSita — для всіх, хто працює погодинно.\n\n"
+              "<blockquote>📝 Записуєш години за день — бот рахує заробіток за твоєю ставкою\n"
+              "📊 Видно, скільки відпрацював і заробив за тиждень і місяць\n"
+              "⏱ Таймер зміни: запустив на роботі, зупинив після\n"
+              "🔔 Premium: нагадування про зміни за твоїм графіком</blockquote>\n"
+              "Безкоштовно, просто в Telegram. Premium — за бажанням.",
+              "⏱ <b>Hour Star</b> · control de horas de trabajo\n\n"
+              "El otro bot del autor de OkSita, para quien trabaja por horas.\n\n"
+              "<blockquote>📝 Apuntas las horas del día y el bot calcula lo ganado según tu tarifa\n"
+              "📊 Ves cuánto has trabajado y ganado en la semana y el mes\n"
+              "⏱ Temporizador de turno: lo inicias al entrar y lo paras al salir\n"
+              "🔔 Premium: avisos de turno según tu horario</blockquote>\n"
+              "Gratis, dentro de Telegram. Premium, si quieres.",
+              "⏱ <b>Hour Star</b> · work hours tracker\n\n"
+              "The second bot from the maker of OkSita, for anyone who works by the hour.\n\n"
+              "<blockquote>📝 Log your hours for the day and the bot works out your pay at your rate\n"
+              "📊 See how much you've worked and earned this week and month\n"
+              "⏱ Shift timer: start it at work, stop it when you leave\n"
+              "🔔 Premium: shift reminders based on your schedule</blockquote>\n"
+              "Free, right inside Telegram. Premium if you want it.")
+    link = hourstar.link("useful" if back == "sp" else "menu")
+    rows = [[url(tx(lang, "⏱ Открыть Hour Star", "⏱ Відкрити Hour Star", "⏱ Abrir Hour Star", "⏱ Open Hour Star"), link, "primary")]] if link else []
+    rows.append([btn(tx(lang, "⬅️ Полезное", "⬅️ Корисне", "⬅️ Útil", "⬅️ Useful"), "sp"), home_btn(lang)] if back == "sp" else [home_btn(lang)])
+    return text, ikb(rows)
+
+
+def hourstar_ad(lang: str) -> Tuple[str, str, str]:
+    """Реклама Hour Star для тех, кто согласился на предложения: заголовок, текст, кнопка."""
+    return (tx(lang, "⏱ Hour Star — учёт рабочих часов и заработка", "⏱ Hour Star — облік робочих годин і заробітку",
+               "⏱ Hour Star: control de horas y de lo que ganas", "⏱ Hour Star: track your work hours and pay"),
+            tx(lang, "Записываешь часы — бот считает, сколько заработал за день, неделю и месяц. Таймер смены, отчёты, напоминания о работе. "
+                     "Второй бот от автора OkSita, бесплатно.",
+               "Записуєш години — бот рахує, скільки заробив за день, тиждень і місяць. Таймер зміни, звіти, нагадування про роботу. "
+               "Другий бот від автора OkSita, безкоштовно.",
+               "Apuntas las horas y el bot calcula lo que has ganado en el día, la semana y el mes. Temporizador de turno, informes y avisos. "
+               "El otro bot del autor de OkSita, gratis.",
+               "Log your hours and the bot works out what you've earned this day, week and month. Shift timer, reports, work reminders. "
+               "The second bot from the maker of OkSita, free."),
+            tx(lang, "⏱ Открыть Hour Star", "⏱ Відкрити Hour Star", "⏱ Abrir Hour Star", "⏱ Open Hour Star"))
 
 
 # ---------- паспорт и консульство Украины ----------

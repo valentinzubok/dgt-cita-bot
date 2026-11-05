@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Tuple
 import config
 import dgt
 import group
+import hourstar
 import premium
 import radar
 import reviews
@@ -54,6 +55,7 @@ T = {
         "prem_items": ["{ps} oficinas", "Revisión cada {pm} min, primero en la cola", "Radar sin límite, hasta 250 km", "Mini app con calendario"],
         "plans_note": "Se paga con Telegram Stars. Premium acelera los avisos, pero no garantiza una cita.",
         "school": "¿Tienes una autoescuela?", "school_text": "Código gratis para tus alumnos: 7 días de Premium, enlace, QR y cartel para imprimir.",
+        "hs": "¿Trabajas por horas?", "hs_text": "Hour Star, el otro bot del autor de OkSita: apuntas las horas y calcula lo que ganas en el día, la semana y el mes. Temporizador de turno e informes, gratis en Telegram.", "hs_btn": "Abrir Hour Star",
         "school_btn": "Pedir código", "reviews": "Lo que dicen", "rating": "{avg} de 5 · {n} opiniones",
         "faq": "Preguntas frecuentes",
         "faqs": [("¿OkSita es de la DGT?", "No. Es un servicio independiente que te avisa. La cita la pides tú en la web oficial sede.dgt.gob.es."),
@@ -94,6 +96,7 @@ T = {
         "prem_items": ["{ps} офісів", "Перевірка кожні {pm} хв, першим у черзі", "Радар без обмежень, до 250 км", "Міні-застосунок з календарем"],
         "plans_note": "Оплата зірками Telegram. Premium пришвидшує сповіщення, але не гарантує запис.",
         "school": "Маєте автошколу?", "school_text": "Безкоштовний код для учнів: 7 днів Premium, посилання, QR і плакат для друку.",
+        "hs": "Працюєш погодинно?", "hs_text": "Hour Star — другий бот від автора OkSita: записуєш години, а він рахує заробіток за день, тиждень і місяць. Таймер зміни і звіти, безкоштовно в Telegram.", "hs_btn": "Відкрити Hour Star",
         "school_btn": "Отримати код", "reviews": "Що кажуть", "rating": "{avg} з 5 · відгуків: {n}",
         "faq": "Питання й відповіді",
         "faqs": [("OkSita — це сервіс DGT?", "Ні. Це незалежний сервіс сповіщень. Записуєшся ти сам на офіційному сайті sede.dgt.gob.es."),
@@ -134,6 +137,7 @@ T = {
         "prem_items": ["{ps} офисов", "Проверка каждые {pm} мин, первым в очереди", "Радар без ограничений, до 250 км", "Мини-приложение с календарём"],
         "plans_note": "Оплата звёздами Telegram. Premium ускоряет уведомления, но не гарантирует запись.",
         "school": "У вас автошкола?", "school_text": "Бесплатный код для учеников: 7 дней Premium, ссылка, QR и плакат для печати.",
+        "hs": "Работаешь по часам?", "hs_text": "Hour Star — второй бот от автора OkSita: записываешь часы, а он считает заработок за день, неделю и месяц. Таймер смены и отчёты, бесплатно в Telegram.", "hs_btn": "Открыть Hour Star",
         "school_btn": "Получить код", "reviews": "Что говорят", "rating": "{avg} из 5 · отзывов: {n}",
         "faq": "Вопросы и ответы",
         "faqs": [("OkSita — это сервис DGT?", "Нет. Это независимый сервис уведомлений. Записываешься ты сам на официальном сайте sede.dgt.gob.es."),
@@ -174,6 +178,7 @@ T = {
         "prem_items": ["{ps} offices", "Checked every {pm} min, first in line", "Unlimited radar, up to 250 km", "Mini app with calendar"],
         "plans_note": "Paid with Telegram Stars. Premium speeds up alerts but doesn't guarantee an appointment.",
         "school": "Run a driving school?", "school_text": "A free code for your students: 7 days of Premium, a link, a QR and a printable poster.",
+        "hs": "Paid by the hour?", "hs_text": "Hour Star, the second bot from the maker of OkSita: log your hours and it works out your pay for the day, week and month. Shift timer and reports, free in Telegram.", "hs_btn": "Open Hour Star",
         "school_btn": "Get a code", "reviews": "What people say", "rating": "{avg} out of 5 · {n} reviews",
         "faq": "Questions and answers",
         "faqs": [("Is OkSita run by DGT?", "No. It's an independent alert service. You book on the official website sede.dgt.gob.es yourself."),
@@ -229,6 +234,7 @@ section.block{padding:56px 0 8px}h2{font-size:clamp(28px,4vw,40px);letter-spacin
 .plan.top li:before{color:#ffd60a}.small{font-size:14px;color:var(--hint);margin-top:14px}
 .school{display:flex;gap:24px;align-items:center;justify-content:space-between;border-radius:28px;padding:30px;background:var(--brand);color:#fff;margin-top:56px}
 .school h2{margin:0 0 8px;font-size:30px}.school p{margin:0;opacity:.95}.school .btn{background:#fff;color:#16161d;flex:none}
+.school.hs{background:linear-gradient(135deg,#0b1026 0%,#2a1b5e 55%,#b8860b 100%);margin-top:16px}.school.hs .btn{color:#2a1b5e}
 .reviews{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.review{background:var(--card);border-radius:22px;padding:20px;box-shadow:0 0 0 1px var(--line)}
 .review p{margin:8px 0;font-size:15.5px}.review small{color:var(--hint)}.rating{color:var(--hint);margin:-14px 0 20px}
 details{background:var(--card);border-radius:18px;padding:18px 20px;box-shadow:0 0 0 1px var(--line);margin-bottom:10px}
@@ -340,14 +346,29 @@ def render(lang: str) -> str:
 <p class="small">{esc(t['plans_note'])}</p></section>
 {review_block}
 <div class="school"><div><h2>🏫 {esc(t['school'])}</h2><p>{esc(t['school_text'])}</p></div><a class="btn" href="{bot('school-web')}">{esc(t['school_btn'])}</a></div>
+{hourstar_block(t)}
 <section class="block" id="faq"><h2>{esc(t['faq'])}</h2>{''.join(f'<details><summary>{esc(q)}</summary><p>{esc(fmt(a))}</p></details>' for q, a in t['faqs'])}</section>
-</main><footer class="wrap"><nav><a href="{bot(start)}">Telegram</a><a href="/dgt">🏢 {esc(t['offices'])}</a>{'<a href="/pasport">🛂 ' + esc(t['pas']) + '</a>' if t.get('pas') else ''}<a href="{channel()}">📢 {esc(store.setting('channel'))}</a>{chat_link(t)}</nav>
+</main><footer class="wrap"><nav><a href="{bot(start)}">Telegram</a><a href="/dgt">🏢 {esc(t['offices'])}</a>{'<a href="/pasport">🛂 ' + esc(t['pas']) + '</a>' if t.get('pas') else ''}<a href="{channel()}">📢 {esc(store.setting('channel'))}</a>{chat_link(t)}{hourstar_link()}</nav>
 <p>{esc(t['foot'])} © {time.strftime('%Y')} OkSita</p></footer>{JS}</body></html>"""
 
 
 def chat_link(t: dict) -> str:
     link = group.link()
     return f'<a href="{esc(link)}">💬 {esc(t["chat"])}</a>' if link else ""
+
+
+def hourstar_link() -> str:
+    link = hourstar.link("site")
+    return f'<a href="{esc(link)}">⏱ {hourstar.NAME}</a>' if link else ""
+
+
+def hourstar_block(t: dict) -> str:
+    """Второй бот автора. Без его имени в админке блока нет."""
+    link = hourstar.link("site")
+    if not link:
+        return ""
+    return (f'<div class="school hs"><div><h2>⏱ {esc(t["hs"])}</h2><p>{esc(t["hs_text"])}</p></div>'
+            f'<a class="btn" href="{esc(link)}">{esc(t["hs_btn"])}</a></div>')
 
 
 # ---------- страницы офисов: «cita previa DGT Málaga» ----------
@@ -376,7 +397,7 @@ def shell(title: str, desc: str, path: str, body: str, ld: List[dict], lang: str
 <meta property="og:url" content="{base}{path}"><meta property="og:image" content="{base}/static/cover.png"><meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/app/icon.png"><style>{CSS}</style>{scripts}</head><body>
 <header><div class="wrap bar"><a class="logo" href="{home}"><i>Ok</i><span><b>Ok</b>Sita</span></a><nav class="langs"><a href="/dgt">{short}</a>{extra}</nav></div></header>
-<main class="wrap">{body}</main><footer class="wrap"><nav><a href="{home}">{home_label}</a><a href="/dgt">🏢 {offices}</a><a href="{bot('web-' + lang)}">Telegram</a>{chat_link(T[lang])}</nav>
+<main class="wrap">{body}</main><footer class="wrap"><nav><a href="{home}">{home_label}</a><a href="/dgt">🏢 {offices}</a><a href="{bot('web-' + lang)}">Telegram</a>{chat_link(T[lang])}{hourstar_link()}</nav>
 <p>{esc(T[lang]['foot'])} © {time.strftime('%Y')} OkSita</p></footer>{JS}</body></html>"""
 
 

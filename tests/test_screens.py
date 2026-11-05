@@ -16,6 +16,7 @@ import admin  # noqa: E402
 import ads  # noqa: E402
 import checker  # noqa: E402
 import dgt  # noqa: E402
+import posts  # noqa: E402
 import premium  # noqa: E402
 import rewards  # noqa: E402
 import signals  # noqa: E402
@@ -130,6 +131,7 @@ class Screens(unittest.TestCase):
                 "pz": views.passport_view(chat, "заметка"), "pk": views.consul_view(chat, "заметка"),
                 "pick_pas": views.place_pick(chat, "pas"), "pick_con": views.place_pick(chat, "con"), "window": views.window_alert(chat),
                 "spain": views.spain_view(chat), "types_madrid": views.doc_types(chat, "s", "28"),
+                "hourstar": views.hourstar_view(chat), "hourstar_sp": views.hourstar_view(chat, "sp"),
             }.items():
                 check(self, screen, f"{name}/{chat}")
             for status in ("ok", "merged", "daily", "muted"):
@@ -159,6 +161,13 @@ class Screens(unittest.TestCase):
         check(self, admin.task_card(store.tasks()[0]["id"], "заметка"), "task")
         check(self, admin.ad_card(store.campaigns()[0]["id"], "заметка"), "ad")
         check(self, checker.daily_report_text(), "report")
+        for bot_name in ("", "HourStarBot"):
+            store.set_setting("hourstar_bot", bot_name)
+            check(self, admin.hourstar_admin("заметка"), f"hourstar {bot_name}")
+            check(self, admin.library_view("заметка"), f"library {bot_name}")
+            for t in posts.TEMPLATES:
+                check(self, admin.template_card(t["tag"], "заметка"), f"template {t['tag']} {bot_name}")
+        store.set_setting("hourstar_bot", "")
 
     def test_ad_keyboard(self):
         camp = store.campaigns()[0]

@@ -84,6 +84,8 @@ h1, h2, h3, p { margin: 0; }
 .mint { background: radial-gradient(120% 120% at 100% 0%, #5be3b4 0%, rgba(91, 227, 180, 0) 55%), linear-gradient(140deg, #046b56, #0fb78a); box-shadow: 0 14px 30px rgba(10, 150, 110, .26); }
 .gem { background: radial-gradient(120% 130% at 100% 100%, #e0219b 0%, rgba(224, 33, 155, 0) 58%), radial-gradient(100% 100% at 0% 0%, #4426b5 0%, rgba(68, 38, 181, 0) 70%), #160b33; box-shadow: 0 14px 30px rgba(70, 30, 160, .32); }
 .ocean { background: radial-gradient(120% 120% at 100% 0%, #1cc6e8 0%, rgba(28, 198, 232, 0) 58%), linear-gradient(140deg, #07225e, #1a4fc4); box-shadow: 0 14px 30px rgba(22, 70, 184, .28); }
+.star { background: radial-gradient(120% 120% at 100% 100%, #f5b301 0%, rgba(245, 179, 1, 0) 55%), radial-gradient(100% 100% at 0% 0%, #3b2a8f 0%, rgba(59, 42, 143, 0) 70%), #0b1026; box-shadow: 0 14px 30px rgba(40, 30, 110, .32); cursor: pointer; }
+.star .logo { color: #ffd34d; }
 .night { background: radial-gradient(90% 120% at 100% 50%, #0e6a6e 0%, rgba(14, 106, 110, 0) 70%), linear-gradient(140deg, #060f22, #0b2a4a); box-shadow: 0 14px 30px rgba(7, 30, 60, .34); }
 .hero-top { display: flex; align-items: center; gap: 12px; }
 .hero-name { min-width: 0; flex: 1; }

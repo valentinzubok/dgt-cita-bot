@@ -611,8 +611,12 @@ class Screens(Base):
 
 class Queue(Base):
     def test_templates_are_drafts_until_planned(self):
-        self.assertEqual(channel.add_templates(), len(posts.TEMPLATES))
+        own = [t for t in posts.TEMPLATES if not t.get("partner")]
+        self.assertEqual(channel.add_templates(), len(own), "пост про Hour Star ждёт имени бота")
         self.assertEqual(channel.add_templates(), 0, "второй раз не дублируются")
+        store.set_setting("hourstar_bot", "HourStarTestBot")
+        self.assertEqual(channel.add_templates(), 1)
+        store.set_setting("hourstar_bot", "")
         channel.tick({}, time.time() + 7 * 86400)
         self.assertFalse(sent("sendPhoto"), "черновики сами не выходят")
         for r in store.queued():
@@ -621,7 +625,7 @@ class Queue(Base):
             self.assertNotRegex(payload["text"], r"\{[a-z]+\}", "все подстановки заполнены")
             self.assertIn(f"/static/{name}", webapp.FILES)
             self.assertTrue((ROOT / "assets" / name).exists(), name)
-            self.assertIn("start=", r["url"])
+            self.assertIn("start=oksita_channel" if r["tag"] == "hourstar" else "start=", r["url"])
             self.assertLess(len(re.sub("<[^>]+>", "", payload["text"])), 1024, "подпись к фото — до 1024 символов")
             check(self, payload["text"], r["tag"])
 
@@ -681,7 +685,7 @@ class Queue(Base):
         self.assertTrue(all(ts > now.timestamp() for _, ts in slots))
         self.assertEqual(channel.next_slots(datetime(2026, 11, 2, 19, 30, tzinfo=config.TZ))[0][0], "Завтра 10:00")
         channel.add_templates()
-        self.assertEqual(channel.plan_drafts(now), len(posts.TEMPLATES))
+        self.assertEqual(channel.plan_drafts(now), len([t for t in posts.TEMPLATES if not t.get("partner")]))
         days = sorted(datetime.fromtimestamp(at, config.TZ) for at in channel.planned().values())
         self.assertEqual(len({d.date() for d in days}), len(days), "по одному в день")
         self.assertTrue(all(d.hour == 19 for d in days))

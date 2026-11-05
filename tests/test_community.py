@@ -23,7 +23,9 @@ import checker  # noqa: E402
 import config  # noqa: E402
 import gate  # noqa: E402
 import group  # noqa: E402
+import hourstar  # noqa: E402
 import landing  # noqa: E402
+import posts  # noqa: E402
 import reviews  # noqa: E402
 import schools  # noqa: E402
 import signals  # noqa: E402
@@ -526,6 +528,122 @@ class SpainExtras(Base):
         finally:
             tg.call = old
             store.set_setting("effects", 1)
+
+
+class HourStar(Base):
+    """Второй бот автора: скрыт без имени, после — в меню, «Полезном», мини-приложении, на сайте и в рекламе."""
+
+    def tearDown(self):
+        super().tearDown()
+        store.set_setting("hourstar_bot", "")
+        store.set_setting("hourstar", 1)
+        landing._pages.clear()
+
+    def connect(self, text="@HourStarBot"):
+        admin.pending[1] = {"kind": "hourstar_set", "screen": 5}
+        admin.handle_input({"chat": {"id": 1}, "message_id": 70, "text": text})
+
+    def test_parse_names(self):
+        self.assertEqual(hourstar.parse("@HourStarBot"), "HourStarBot")
+        self.assertEqual(hourstar.parse("https://t.me/HourStarBot"), "HourStarBot")
+        self.assertEqual(hourstar.parse(" t.me/hour_star_bot/ "), "hour_star_bot")
+        self.assertIsNone(hourstar.parse("HourStar"), "у ботов имя оканчивается на bot")
+        self.assertIsNone(hourstar.parse("@hbot"))
+        self.assertIsNone(hourstar.parse("https://evil.example/HourStarBot"))
+
+    def test_hidden_until_connected(self):
+        chat = self.user(6501)
+        self.assertNotIn('"hs"', json.dumps(views.dashboard(chat)[1]))
+        self.assertNotIn("hs:sp", json.dumps(views.spain_view(chat)[1]))
+        self.assertIsNone(webapp.me_payload(chat)["hourstar"])
+        landing._pages.clear()
+        self.assertNotIn("Hour Star", landing.render("ru"))
+
+    def test_connected_everywhere(self):
+        self.connect("https://t.me/HourStarBot")
+        self.assertEqual(store.setting("hourstar_bot"), "HourStarBot")
+        chat = self.user(6502, "uk")
+        self.assertIn('"hs"', json.dumps(views.dashboard(chat)[1]))
+        self.assertIn("hs:sp", json.dumps(views.spain_view(chat)[1]))
+        bot.route_callback({"from": {"id": chat}}, chat, 40, "hs:sp")
+        screen = self.shown()[-1]
+        self.assertIn("start=oksita_useful", json.dumps(screen["kb"]))
+        self.assertIn("post_hourstar.jpg", screen["banner"])
+        self.assertIn("Hour Star", screen["text"])
+        self.assertTrue(webapp.me_payload(chat)["hourstar"].endswith("start=oksita_app"))
+        self.assertIn("HourStarBot?start=oksita_site", landing.render("uk"))
+        self.assertEqual(store.metric(store.today_key(), "hourstar_views"), 1)
+        admin.on_callback(1, 9, "zt")
+        self.assertFalse(hourstar.ready())
+        self.assertNotIn('"hs"', json.dumps(views.dashboard(chat)[1]))
+
+    def test_bad_name_is_asked_again(self):
+        self.connect("HourStar")
+        self.assertEqual(store.setting("hourstar_bot"), "")
+        self.assertIn("оканчивается на bot", self.shown()[-1]["text"])
+
+    def test_people_from_hourstar_are_counted(self):
+        self.user(6503)
+        self.user(6504)
+        before = hourstar.arrived()
+        bot.handle_start_arg(6503, "hourstar", True)
+        bot.handle_start_arg(6504, "trial-hourstar", True)
+        self.assertEqual(bot.opens.pop(6504), "trial")
+        self.assertEqual(hourstar.arrived(), before + 2)
+
+    def test_ads_only_for_consent_by_language(self):
+        self.connect()
+        for chat, lang in ((6511, "uk"), (6512, "ru")):
+            self.user(chat, lang)
+            store.set_chat(chat, ads_ok=1)
+        made = admin.hourstar_campaigns()
+        self.assertGreaterEqual(made, 2)
+        mine = [c for c in store.campaigns() if c["name"].startswith("Hour Star ·")]
+        self.assertTrue(all(c["url"].endswith("start=oksita_ad") and c["segment"] in config.LANGS for c in mine))
+        payload = json.loads(next(c for c in mine if c["segment"] == "uk")["payload"])
+        self.assertTrue(payload["file"].endswith(".jpg?v=" + config.VERSION))
+        self.assertEqual(payload["entities"][0]["type"], "bold")
+        self.assertEqual(admin.hourstar_campaigns(), 0, "черновики не дублируются")
+        for c in mine:
+            store.delete_campaign(c["id"])
+
+
+class PostLibrary(Base):
+    """Готовые посты: пробный себе, черновик, публикация с подтверждением, копия вышедшего поста."""
+
+    def test_library_lists_every_template(self):
+        admin.on_callback(1, 9, "kl")
+        kb = json.dumps(self.shown()[-1]["kb"])
+        for t in posts.TEMPLATES:
+            self.assertIn(f"ad:kv:{t['tag']}", kb)
+
+    def test_trial_post_goes_to_admin_only(self):
+        self.assertEqual(admin.on_callback(1, 9, "kz:spain"), "👆 Так пост выйдет в канале")
+        photo = sent("sendPhoto")[-1]
+        self.assertEqual(photo["chat_id"], 1)
+        self.assertIn("/static/post_spain.jpg", photo["photo"])
+        self.assertIn("start=spain-ch", json.dumps(photo["reply_markup"]))
+
+    def test_publish_needs_confirmation(self):
+        admin.on_callback(1, 9, "ko:calendar")
+        self.assertFalse([p for p in sent("sendPhoto") if p["chat_id"] == "@oksita_news"], "без подтверждения не публикуем")
+        self.assertIn("ad:kf:calendar", json.dumps(self.shown()[-1]["kb"]))
+        admin.on_callback(1, 9, "kf:calendar")
+        out = [p for p in sent("sendPhoto") if p["chat_id"] == "@oksita_news"]
+        self.assertEqual(len(out), 1)
+        self.assertEqual(store.tag_states()["calendar"], "sent")
+        qid = max(r["id"] for r in store.queued(("sent",), 200) if r.get("tag") == "calendar")
+        admin.on_callback(1, 9, f"kr:{qid}")
+        self.assertIn("Копия в черновиках", self.shown()[-1]["text"])
+
+    def test_hourstar_post_waits_for_bot_name(self):
+        store.set_setting("hourstar_bot", "")
+        admin.on_callback(1, 9, "kv:hourstar")
+        kb = json.dumps(self.shown()[-1]["kb"])
+        self.assertIn("ad:zu", kb)
+        self.assertNotIn("ad:kf:hourstar", kb)
+        admin.on_callback(1, 9, "kf:hourstar")
+        self.assertFalse([p for p in sent("sendPhoto") if p["chat_id"] == "@oksita_news"])
 
 
 if __name__ == "__main__":

@@ -238,7 +238,7 @@ CHAT_FIELDS = {"name", "username", "quiet", "role", "screen", "last_seen", "lang
 INT_SETTINGS = {"interval", "interval_premium", "free_subs", "max_subs", "checks_paused", "notify_new", "maintenance",
                 "daily_report", "price_7", "price_30", "price_90", "ref_hours", "ref_cap", "ref_task", "ad_gap",
                 "free_radar_day", "trial_hours", "channel_delay", "post_job", "post_ad",
-                "discount_pct", "discount_tasks", "channel_digest", "channel_proof", "gate", "group_guard", "effects"}
+                "discount_pct", "discount_tasks", "channel_digest", "channel_proof", "gate", "group_guard", "effects", "hourstar"}
 DEFAULTS = {
     "interval": 30,                # минут между проверками офиса (бесплатно)
     "interval_premium": 5,         # минут между проверками офиса, за которым следит подписчик Premium
@@ -275,6 +275,8 @@ DEFAULTS = {
     "effects": 1,                  # анимации Telegram: 🔥 на новых датах, 🎉 на оплате и наградах, 👍 в день визита
     "school_requests": "",         # заявки автошкол до решения админа, JSON {чат: текст}: переживают перезапуск
     "gsc": "",                     # код подтверждения сайта в Google Search Console (meta google-site-verification)
+    "hourstar_bot": "",            # имя второго бота автора (учёт рабочих часов); пусто — реклама Hour Star скрыта
+    "hourstar": 1,                 # показывать Hour Star в меню, «Полезном», мини-приложении, на сайте
     "avatar_sha": "",              # какая картинка уже стоит на аватаре бота
     "ledger_salt": "",             # ключ хешей в reward_ledger, создаётся при первом запуске
 }
@@ -1219,6 +1221,11 @@ def queued(statuses: Tuple[str, ...] = ("draft", "planned"), limit: int = 30) ->
 
 def queued_tags() -> Set[str]:
     return {r["tag"] for r in q("SELECT tag FROM channel_queue WHERE tag IS NOT NULL")}
+
+
+def tag_states() -> Dict[str, str]:
+    """Готовый пост → статус последней его копии: draft, planned, sent или failed."""
+    return {r["tag"]: r["status"] for r in q("SELECT tag, status FROM channel_queue WHERE tag IS NOT NULL ORDER BY id")}
 
 
 # ---------- автошколы ----------

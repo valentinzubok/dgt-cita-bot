@@ -931,6 +931,7 @@ function profileScreen() {
     h("div", { class: "group" },
       toggle("moon", L.quiet, L.quietHint, me.quiet, (on) => saveSetting({ quiet: on })),
       toggle("megaphone", L.partner, L.partnerHint, me.adsOk, (on) => saveSetting({ ads: on }))),
+    me.hourstar ? hourstarCard() : null,
     sectionHead(L.info),
     h("div", { class: "group" },
       row("case", L.boardTitle, null, () => push(boardScreen)),
@@ -942,6 +943,17 @@ function profileScreen() {
       tg && tg.addToHomeScreen && tg.isVersionAtLeast("8.0") ? row("phone", L.addHome, null, () => tg.addToHomeScreen()) : null),
     h("p", { class: "muted small center" }, L.disclaimer),
   ];
+}
+
+// Второй бот автора: учёт рабочих часов. Ссылка приходит с сервера, только когда админ указал бота
+function hourstarCard() {
+  const open = () => { tick(); openTg(me.hourstar); };
+  return [sectionHead(L.hsHead),
+    h("section", { class: "hero star", onclick: open }, h("i", { class: "glow" }),
+      h("div", { class: "hero-top" }, h("div", { class: "logo" }, ico("clock", 28)),
+        h("div", { class: "hero-name" }, h("h1", {}, "Hour Star"), h("small", {}, ico("star", 14), L.hsSub))),
+      h("p", {}, L.hsText),
+      h("button", { class: "btn white" }, ico("external", 18), L.hsOpen))];
 }
 
 // ---------- пробный период ----------

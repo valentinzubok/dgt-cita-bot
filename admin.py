@@ -19,6 +19,7 @@ import checker
 import config
 import dgt
 import group
+import hourstar
 import landing
 import posts
 import premium
@@ -472,7 +473,8 @@ def channel_admin(note: str = "") -> Tuple[str, dict]:
         [btn(f"{on('gate')} Ботом — только с подпиской на канал", "ad:gk")],
         [btn("💬 Группа канала" + (f" · {group.info().get('title')}" if group.info().get("id") else " · не найдена"), "ad:gg")],
         [btn("📌 Опубликовать и закрепить пост о канале", "ad:cw")],
-        [btn("🌐 Сайт и Google", "ad:ws")],
+        [btn("🌐 Сайт и Google", "ad:ws"), btn("⏱ Hour Star" + (f" · @{hourstar.username()}" if hourstar.username() else " · подключить"), "ad:zp",
+                                              None if hourstar.username() else "primary")],
         [url("📢 Открыть канал", channel.link()), BACK],
     ])
 
@@ -492,6 +494,92 @@ def site_admin(note: str = "") -> Tuple[str, dict]:
         [url("🏢 Офисы", f"{base}/dgt"), url("🛂 Паспорт", f"{base}/pasport")],
         [btn("⬅️ Канал", "ad:cl")],
     ])
+
+
+def hourstar_admin(note: str = "") -> Tuple[str, dict]:
+    name, on, day = hourstar.username(), store.setting("hourstar"), store.today_key()
+    bot = config.BOT_USERNAME
+    text = ("⏱ <b>Hour Star</b> · второй бот, учёт рабочих часов\n\n<blockquote>"
+            f"Бот: <b>{'@' + esc(name) if name else 'не указан'}</b> · показ в OkSita: <b>{'включён' if on else 'выключен'}</b>\n"
+            f"Открыли экран Hour Star: сегодня <b>{store.metric(day, 'hourstar_views')}</b> · "
+            f"за 60 дней <b>{store.metric_total('hourstar_views')}</b>\n"
+            f"Пришли из Hour Star в OkSita: <b>{hourstar.arrived()}</b></blockquote>\n"
+            "<b>Где OkSita показывает Hour Star</b>\n"
+            "• кнопка в главном меню и в «📚 Полезном», экран с картинкой\n"
+            "• карточка в мини-приложении (Профиль)\n• блок и ссылка на сайте\n"
+            "• готовый пост с картинкой для канала\n• реклама тем, кто сам согласился на предложения партнёров\n\n"
+            "<b>Ссылки для Hour Star → OkSita</b>\n"
+            f"<code>https://t.me/{bot}?start=hourstar</code> — бот\n"
+            f"<code>https://t.me/{bot}?start=trial-hourstar</code> — сразу пробный Premium\n"
+            f"<code>{channel.link()}</code> — канал\n"
+            "<i>Кто придёт по ним, тот попадёт в «Пришли из Hour Star». В ссылках OkSita → Hour Star стоит метка "
+            "oksita_menu, oksita_useful, oksita_app, oksita_site, oksita_channel или oksita_ad: по ней Hour Star видит, откуда человек.</i>"
+            + (f"\n\n{note}" if note else ""))
+    rows = [[btn("✏️ Указать бота" if not name else "✏️ Заменить бота", "ad:zu", "primary" if not name else None)]]
+    if name:
+        rows.append([btn(f"{'✅' if on else '⬜️'} Показывать в OkSita", "ad:zt"), url("⏱ Открыть", f"https://t.me/{name}")])
+        rows.append([btn("📚 Пост для канала", "ad:kv:hourstar"), btn("📣 Реклама по согласию", "ad:zc")])
+    rows.append([btn("⬅️ Канал", "ad:cl"), BACK])
+    return text, ikb(rows)
+
+
+def hourstar_campaigns() -> int:
+    """Черновики рекламы Hour Star на каждом языке, где есть согласившиеся. Отправляет админ сам из «📣 Реклама»."""
+    link = hourstar.link("ad")
+    if not link:
+        return 0
+    have = {c["name"] for c in store.campaigns() if c["status"] == "draft"}
+    made = 0
+    for lang in config.LANGS:
+        name = f"Hour Star · {lang}"
+        if name in have or not ads.recipients(lang, ignore_gap=True):
+            continue
+        title, body, button = views.hourstar_ad(lang)
+        payload = {"type": "photo", "file": channel.static_url(hourstar.IMAGE), "text": f"{title}\n\n{body}",
+                   "entities": [{"type": "bold", "offset": 0, "length": len(title.encode("utf-16-le")) // 2}]}
+        store.add_campaign(name, payload, button, link, lang)
+        made += 1
+    return made
+
+
+# ---------- готовые посты ----------
+
+STATE_MARK = {"sent": "✅", "planned": "🕒", "draft": "📝", "failed": "⚠️"}
+
+
+def library_view(note: str = "") -> Tuple[str, dict]:
+    states, have = store.tag_states(), store.queued_tags()
+    fresh = sum(1 for t in posts.TEMPLATES if t["tag"] not in have and channel.template_link(t))
+    text = (f"📚 <b>Готовые посты</b> · {len(posts.TEMPLATES)}\n\n"
+            "<blockquote>✅ уже выходил · 🕒 в плане · 📝 в черновиках · ▫️ ещё не было</blockquote>\n"
+            "Открой пост: «👁 Пробный — мне» пришлёт его тебе точно так, как он выйдет в канале, с картинкой и кнопкой. "
+            "Потом — в черновики, на время или сразу в канал. Любой пост можно выпустить ещё раз."
+            + (f"\n\n{note}" if note else ""))
+    rows = [[btn(f"{STATE_MARK.get(states.get(t['tag']), '▫️')} {posts.title(t)[:38]}", f"ad:kv:{t['tag']}")] for t in posts.TEMPLATES]
+    if fresh:
+        rows.append([btn(f"📥 Все новые в черновики · {fresh}", "ad:kt")])
+    rows.append([btn("⬅️ Отложенные", "ad:kq"), BACK])
+    return text, ikb(rows)
+
+
+def template_card(tag: str, note: str = "") -> Tuple[str, dict]:
+    t = posts.get(tag)
+    if not t:
+        return library_view("Такого поста нет.")
+    link, state = channel.template_link(t), store.tag_states().get(tag)
+    where = {"sent": "✅ Уже выходил в канале", "planned": "🕒 Стоит в плане", "draft": "📝 Лежит в черновиках",
+             "failed": "⚠️ Последний раз не вышел"}.get(state, "▫️ Ещё не выходил")
+    button = f"🔘 {esc(t['button'])} → {esc(link)}" if link else "🔘 Кнопка в Hour Star появится, когда укажешь его бота"
+    text = (f"📚 <b>{esc(posts.title(t))}</b>\n\n{where}\n🖼 {esc(t['image'])}\n{button}\n\n"
+            f"<blockquote expandable>{posts.fill(t['text'], channel.template_values())}</blockquote>"
+            + (f"\n\n{note}" if note else ""))
+    rows = [[btn("👁 Пробный — прислать мне", f"ad:kz:{tag}", "primary")]]
+    if link:
+        rows.append([btn("📝 В черновики", f"ad:kc:{tag}"), btn("🚀 В канал сейчас", f"ad:ko:{tag}", "success")])
+    else:
+        rows.append([btn("⏱ Указать бота Hour Star", "ad:zu", "primary")])
+    rows.append([btn("⬅️ Готовые посты", "ad:kl"), BACK])
+    return text, ikb(rows)
 
 
 # ---------- автошколы и отзывы ----------
@@ -601,7 +689,8 @@ def when(ts: int) -> str:
 
 def queue_view(note: str = "") -> Tuple[str, dict]:
     items = store.queued(("planned", "draft", "failed"))
-    fresh = len([t for t in posts.TEMPLATES if t["tag"] not in store.queued_tags()])
+    have = store.queued_tags()
+    fresh = sum(1 for t in posts.TEMPLATES if t["tag"] not in have and channel.template_link(t))
     mark = lambda r: f"🕒 {when(r['at'])}" if r["status"] == "planned" else "⚠️" if r["status"] == "failed" else "📝"  # noqa: E731
     lines = [f"{mark(r)} · {esc(channel.preview_line(r))}" for r in items]
     text = ("🗓 <b>Отложенные посты</b>\n\n"
@@ -611,8 +700,7 @@ def queue_view(note: str = "") -> Tuple[str, dict]:
             + (f"\n\n{note}" if note else ""))
     rows = [[btn(f"{mark(r)} {channel.preview_line(r)[:34]}", f"ad:ki:{r['id']}")] for r in items[:12]]
     rows.append([btn("➕ Новый пост", "ad:kn", "success")])
-    if fresh:
-        rows.append([btn(f"📥 Готовые посты с картинками · {fresh}", "ad:kt")])
+    rows.append([btn(f"📚 Готовые посты с картинками · {len(posts.TEMPLATES)}" + (f" · новых {fresh}" if fresh else ""), "ad:kl")])
     if any(r["status"] == "draft" for r in items):
         rows.append([btn("🗓 Расставить черновики: по одному в день, 19:00", "ad:ka")])
     rows.append([btn("⬅️ Канал", "ad:cl"), BACK])
@@ -637,6 +725,8 @@ def queued_card(qid: int, note: str = "") -> Tuple[str, dict]:
         rows.append([btn("✏️ Своё время", f"ad:kw:{qid}"), btn("🚀 Сейчас", f"ad:kg:{qid}")])
         if row["status"] == "planned":
             rows.append([btn("⏸ Снять с плана", f"ad:ku:{qid}")])
+    else:
+        rows.append([btn("📋 Ещё раз: копия в черновики", f"ad:kr:{qid}")])
     rows.append([btn("🗑 Удалить", f"ad:kd:{qid}"), btn("⬅️ Отложенные", "ad:kq")])
     return text, ikb(rows)
 
@@ -793,7 +883,7 @@ def resolve_target(msg: dict) -> Tuple[Optional[str], Optional[str], str]:
 
 # ---------- реклама ----------
 
-def ads_view() -> Tuple[str, dict]:
+def ads_view(note: str = "") -> Tuple[str, dict]:
     items = store.campaigns()
     audience = len(ads.recipients("all", ignore_gap=True))
     rows = []
@@ -801,12 +891,14 @@ def ads_view() -> Tuple[str, dict]:
         ctr = f"{round(c['clicks'] / c['sent'] * 100)}%" if c["sent"] else "—"
         rows.append([btn(f"{'✅' if c['status'] == 'sent' else '📝'} {c['name'][:24]} · {c['sent']} · CTR {ctr}", f"ad:cd:{c['id']}")])
     rows.append([btn("➕ Новая кампания", "ad:cn", "success")])
+    if hourstar.ready():
+        rows.append([btn("⏱ Готовая реклама Hour Star", "ad:zc")])
     rows.append([BACK])
     return ("📣 <b>Реклама</b>\n\n<blockquote>"
             f"👥 Аудитория: <b>{audience}</b> — согласились на предложения партнёров и без Premium\n"
             f"⏱ Не чаще раза в {store.setting('ad_gap')} ч на человека</blockquote>\n"
             "Метка «Реклама» и кнопка отказа добавляются сами. По закону ЕС рекламу можно слать только с согласия: "
-            "его дают в настройках или за задание в бонусах."), ikb(rows)
+            "его дают в настройках или за задание в бонусах." + (f"\n\n{note}" if note else "")), ikb(rows)
 
 
 def ad_card(cid: int, note: str = "") -> Tuple[str, dict]:
@@ -1063,6 +1155,17 @@ def handle_input(msg: dict) -> bool:
         store.set_setting("gsc", found.group(1))
         landing._pages.clear()
         tg.show(chat, *site_admin("✅ Код стоит на сайте. Теперь нажми «Подтвердить» в Search Console."), mid=screen)
+    elif kind == "hourstar_set":
+        name = hourstar.parse(text)
+        if not name:
+            tg.show(chat, "Нужно имя бота, оно оканчивается на bot: <code>@HourStarBot</code> или <code>t.me/HourStarBot</code>.",
+                    ikb([[btn("✖️ Отмена", "ad:zp")]]), mid=screen)
+            return True
+        pending.pop(chat, None)
+        store.set_setting("hourstar_bot", name)
+        landing._pages.clear()
+        checker.event(f"⏱ Hour Star: @{name}")
+        tg.show(chat, *hourstar_admin(f"✅ Подключено: @{name}. Кнопка уже в меню, «Полезном», мини-приложении и на сайте."), mid=screen)
     elif kind == "group_set":
         value = text.strip()
         if not re.fullmatch(r"@[A-Za-z0-9_]{5,32}|-100\d{6,14}", value):
@@ -1272,6 +1375,44 @@ def on_callback(chat: int, mid: int, data: str) -> Optional[str]:
     elif kind == "kt":
         n = channel.add_templates()
         tg.show(chat, *queue_view(f"📥 Добавлено черновиков: {n}. Открой любой, посмотри и выбери время."), mid=mid)
+    elif kind == "kl":
+        tg.show(chat, *library_view(), mid=mid)
+    elif kind in ("kv", "kz", "kc", "ko", "kf"):
+        t = posts.get(rest)
+        if not t:
+            tg.show(chat, *library_view("Такого поста нет."), mid=mid)
+        elif kind == "kv":
+            tg.show(chat, *template_card(rest), mid=mid)
+        elif kind == "kz":
+            ok = channel.send_payload(chat, channel.template_payload(t), channel.template_kb(t))
+            return "👆 Так пост выйдет в канале" if ok else "⚠️ Не получилось показать пост"
+        elif not channel.template_link(t):
+            tg.show(chat, *template_card(rest, "Сначала укажи бота Hour Star."), mid=mid)
+        elif kind == "kc":
+            row = channel.add_template(t)
+            tg.show(chat, *queued_card(row["id"], "📝 В черновиках. Выбери время или опубликуй сейчас."), mid=mid)
+        elif kind == "ko":
+            tg.show(chat, f"🚀 Опубликовать «{esc(posts.title(t))}» в {esc(channel.username())} прямо сейчас?",
+                    ikb([[btn("✅ Да, в канал", f"ad:kf:{rest}", "success"), btn("✖️ Отмена", f"ad:kv:{rest}")]]), mid=mid)
+        else:
+            row = channel.add_template(t)
+            ok = channel.publish_queued(row["id"])
+            checker.event(f"📢 Готовый пост «{posts.title(t)}» в канале" + ("" if ok else " — не вышел"), "user")
+            tg.show(chat, *queued_card(row["id"], "✅ Опубликовано" if ok else "⚠️ Канал не принял пост: проверь права бота"), mid=mid)
+    elif kind == "zp":
+        tg.show(chat, *hourstar_admin(), mid=mid)
+    elif kind == "zu":
+        pending[chat] = {"kind": "hourstar_set", "screen": mid}
+        tg.show(chat, "✏️ Пришли имя бота Hour Star: <code>@HourStarBot</code> или ссылку <code>t.me/HourStarBot</code>.",
+                ikb([[btn("✖️ Отмена", "ad:zp")]]), mid=mid)
+    elif kind == "zt":
+        store.set_setting("hourstar", 0 if store.setting("hourstar") else 1)
+        landing._pages.clear()
+        tg.show(chat, *hourstar_admin(), mid=mid)
+    elif kind == "zc":
+        n = hourstar_campaigns()
+        tg.show(chat, *ads_view(f"📣 Черновиков рекламы Hour Star: {n}. Открой, нажми «👀 Пример мне» и отправь." if n else
+                                "Новых черновиков нет: на этих языках они уже есть или никто не согласился на предложения партнёров."), mid=mid)
     elif kind == "ka":
         n = channel.plan_drafts()
         tg.show(chat, *queue_view(f"🗓 Запланировано: {n}, по одному в день в 19:00."), mid=mid)
@@ -1284,7 +1425,7 @@ def on_callback(chat: int, mid: int, data: str) -> Optional[str]:
             add_queued_post(chat, mid, p, "⚡️ OkSita", channel.bot_link("ch"))
         else:
             add_queued_post(chat, mid, p, None, None)
-    elif kind in ("ki", "kp", "kw", "kg", "ku", "kd", "ks"):
+    elif kind in ("ki", "kp", "kw", "kg", "ku", "kd", "ks", "kr"):
         qid_s, _, extra = rest.partition(":")
         row = store.get_queued(int(qid_s)) if qid_s.isdigit() else None
         if not row:
@@ -1313,6 +1454,9 @@ def on_callback(chat: int, mid: int, data: str) -> Optional[str]:
         elif kind == "kd":
             channel.drop(qid)
             tg.show(chat, *queue_view("🗑 Удалено"), mid=mid)
+        elif kind == "kr":
+            copy_row = store.add_queued(json.loads(row["payload"]), row.get("button"), row.get("url"))
+            tg.show(chat, *queued_card(copy_row["id"], "📋 Копия в черновиках. Выбери время или опубликуй сейчас."), mid=mid)
     elif kind == "cw":
         status = channel.pin_welcome()
         tg.show(chat, *channel_admin({"ok": "✅ Пост опубликован и закреплён", "pin": "⚠️ Пост опубликован, но закрепить не вышло",
