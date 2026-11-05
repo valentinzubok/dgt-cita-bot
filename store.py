@@ -229,12 +229,14 @@ MIGRATIONS = [
     ("chats", "paid_alerts", "INTEGER NOT NULL DEFAULT 0"),
     ("chats", "windows", "TEXT"),
     ("chats", "discount_at", "BIGINT NOT NULL DEFAULT 0"),
+    ("chats", "canje_at", "BIGINT NOT NULL DEFAULT 0"),    # когда подал заявку на canje: через 3 дня напомним проверить ответ
+    ("chats", "canje_told", "BIGINT NOT NULL DEFAULT 0"),  # когда админ прислал памятку canje
 ]
 SUB_FIELDS = {"max_days", "paused", "last", "checked_at", "fails", "alert_msg", "area_label",
               "booked_date", "booked_time", "reminded"}
 CHAT_FIELDS = {"name", "username", "quiet", "role", "screen", "last_seen", "lang", "alerts", "bookings", "source",
                "premium_until", "prem_notice", "sub_charge", "sub_active", "ref_code", "ref_by", "ref_done_at",
-               "ads_ok", "last_ad", "trial_at", "paid_at", "paid_alerts", "windows", "discount_at"}
+               "ads_ok", "last_ad", "trial_at", "paid_at", "paid_alerts", "windows", "discount_at", "canje_at", "canje_told"}
 INT_SETTINGS = {"interval", "interval_premium", "free_subs", "max_subs", "checks_paused", "notify_new", "maintenance",
                 "daily_report", "price_7", "price_30", "price_90", "ref_hours", "ref_cap", "ref_task", "ad_gap",
                 "free_radar_day", "trial_hours", "channel_delay", "post_job", "post_ad",

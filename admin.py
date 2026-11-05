@@ -321,6 +321,9 @@ def offices_view() -> Tuple[str, dict]:
         label = views.area_label(area, ss[0].get("area_label"))
         rows.append([btn(f"{office_emoji(st, (cid, area) in blocked)} {views.city(cid)} · {label} — 👥 {active}",
                          f"ad:oc:{cid}:{area}")])
+    waiting = views.canje_chats()
+    if waiting:
+        rows.append([btn(f"🪪 Памятка canje тем, кто ждёт · {len(waiting)}", "ad:cj", "primary")])
     rows.append([BACK])
     text = ("🏢 <b>Офисы под наблюдением</b> · " + str(len(groups)) + "\n\n<blockquote>"
             "🟢 есть даты · 🔴 мест нет · ⚪️ нет такой записи\n🔐 нужна заявка · ⚠️ сайт не отвечает · ⛔️ отключён · ⏳ не проверялся</blockquote>\n"
@@ -1399,6 +1402,24 @@ def on_callback(chat: int, mid: int, data: str) -> Optional[str]:
             ok = channel.publish_queued(row["id"])
             checker.event(f"📢 Готовый пост «{posts.title(t)}» в канале" + ("" if ok else " — не вышел"), "user")
             tg.show(chat, *queued_card(row["id"], "✅ Опубликовано" if ok else "⚠️ Канал не принял пост: проверь права бота"), mid=mid)
+    elif kind == "cj":
+        n = len(views.canje_chats())
+        tg.show(chat, f"🪪 <b>Памятка canje</b>\n\nПолучат <b>{n}</b> чел.: все, кто следит за canje и ещё не получал её. "
+                      "Каждому один раз: что DGT изменил порядок, как подать заявку и кнопка «напомни через 3 дня».\n\n"
+                      "Сначала посмотри пример — он придёт тебе.",
+                ikb([[btn("👀 Пример мне", "ad:cjp")], [btn(f"📨 Отправить · {n}", "ad:cj!", "success"), btn("✖️ Отмена", "ad:o")]]), mid=mid)
+    elif kind == "cjp":
+        return "👆 Так увидят" if tg.send(chat, *views.canje_view(chat, intro=True)) else "⚠️ Не получилось отправить"
+    elif kind == "cj!":
+        sent = 0
+        for target in views.canje_chats():
+            if tg.send(target, *views.canje_view(target, intro=True), silent=checker.is_quiet(target)):
+                sent += 1
+            store.set_chat(target, canje_told=int(time.time()))
+            time.sleep(0.05)
+        checker.event(f"🪪 Памятка canje: отправлено {sent}", "user")
+        tg.show(chat, *offices_view(), mid=mid)
+        return f"📨 Отправлено: {sent}"
     elif kind == "zp":
         tg.show(chat, *hourstar_admin(), mid=mid)
     elif kind == "zu":

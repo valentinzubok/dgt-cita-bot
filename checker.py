@@ -370,6 +370,7 @@ def reminders() -> None:
         try:
             send_reminders()
             send_windows()
+            send_canje()
         except Exception:
             log.exception("ошибка напоминаний")
         time.sleep(300)
@@ -401,6 +402,17 @@ def send_windows() -> None:
             mid = tg.send(chat, *views.window_alert(chat), silent=is_quiet(chat))
             if mid:
                 _window_msg[chat] = mid
+
+
+def send_canje(now: Optional[float] = None) -> None:
+    """Через CANJE_WAIT дней после заявки на canje — напомнить проверить ответ DGT. Один раз, дальше по кнопке."""
+    now = now or time.time()
+    for c in store.all_chats():
+        at = c.get("canje_at") or 0
+        if not at or now - at < views.CANJE_WAIT * 86400 or c.get("role") in ("banned", "pending"):
+            continue
+        store.set_chat(c["chat"], canje_at=0)
+        tg.send(c["chat"], *views.canje_reminder(c["chat"]), silent=is_quiet(c["chat"]))
 
 
 def send_reminders() -> None:

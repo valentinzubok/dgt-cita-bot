@@ -46,7 +46,7 @@ from views import tx
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("bot")
 
-SECTIONS = ("trial", "post", "partner", "school", "stats", "tie", "radar", "premium", "bonus", "docs", "passport", "consul", "spain", "hours")  # разделы с прямыми ссылками ?start=… и командами
+SECTIONS = ("trial", "post", "partner", "school", "stats", "tie", "radar", "premium", "bonus", "docs", "passport", "consul", "spain", "hours", "canje")  # разделы с прямыми ссылками ?start=… и командами
 opens: Dict[int, str] = {}  # раздел из ссылки: откроется после выбора языка
 LEGACY_BUTTONS = {"➕ Добавить офис": "/add", "📋 Мои подписки": "/list", "🔄 Проверить сейчас": "/check",
                   "⚙️ Настройки": "/settings", "❓ Помощь": "/help"}  # кнопки под полем ввода из первой версии
@@ -328,6 +328,8 @@ def open_section(chat: int, section: str, mid: Optional[int] = None) -> None:
         tg.show(chat, *views.bonus_view(chat), mid=mid, banner=views.banner("bonus"))
     elif section == "docs":
         tg.show(chat, *views.docs_view(chat), mid=mid, banner=views.banner("docs"))
+    elif section == "canje":
+        tg.show(chat, *views.canje_view(chat), mid=mid, banner=views.banner("docs"))
     elif section == "hours":
         hourstar.seen()
         tg.show(chat, *views.hourstar_view(chat), mid=mid, banner=views.hourstar_banner())
@@ -724,6 +726,13 @@ def route_callback(cb: dict, chat: int, mid: int, data: str) -> Tuple[Optional[s
         tg.show(chat, *views.tie_guide(chat), mid=mid, banner=views.banner("docs"))
     elif data == "sp":
         tg.show(chat, *views.spain_view(chat), mid=mid)
+    elif kind == "cj":
+        if rest == "a":
+            store.set_chat(chat, canje_at=int(time.time()))
+            store.bump("canje_applied")
+        elif rest == "x":
+            store.set_chat(chat, canje_at=0)
+        tg.show(chat, *views.canje_view(chat), mid=mid, banner=views.banner("docs"))
     elif kind == "hs":
         hourstar.seen()
         tg.show(chat, *views.hourstar_view(chat, rest), mid=mid, banner=views.hourstar_banner())

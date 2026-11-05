@@ -688,6 +688,9 @@ def card(sub: dict, note: str = "") -> Tuple[str, dict]:
     rows = [[url(tx(lang, "📝 Записаться на сайте DGT", "📝 Записатися на сайті DGT",
                           "📝 Pedir cita en la web de la DGT",
                           "📝 Book on the DGT website"), dgt.START_URL, "primary")]]
+    if any(r.get("status") == dgt.NEEDS_DATA for r in last or []) and not days:
+        rows.append([btn(tx(lang, "🪪 Как теперь пройти canje", "🪪 Як тепер пройти canje", "🪪 Cómo hacer el canje ahora",
+                            "🪪 How to do the canje now"), "cj", "success")])
     if status == dgt.NO_AREA:
         rows.append([btn(tx(lang, "🔁 Выбрать тип записи заново", "🔁 Обрати тип запису знову",
                                   "🔁 Elegir de nuevo el tipo de cita",
@@ -1665,6 +1668,87 @@ def spain_view(chat: int) -> Tuple[str, dict]:
         [btn(hourstar_label(lang), "hs:sp")] if hourstar.ready() else [],
         [btn(tx(lang, "🛂 Документы", "🛂 Документи", "🛂 Documentos", "🛂 Documents"), "dc"), home_btn(lang)],
     ])
+
+
+# ---------- canje: заявка с личными данными на сайте DGT ----------
+
+CANJE_APPLY = dgt.BASE + "canjes/inicio.faces"  # «Tus canjes»: NIE, дата рождения, страна (проверено 06.11.2026)
+CANJE_INFO = "https://sede.dgt.gob.es/es/permisos-de-conducir/canjes-de-permisos/canjes-de-permisos-extranjeros/"
+CANJE_WAIT = 3  # дней до напоминания проверить ответ DGT
+
+
+def canje_view(chat: int, note: str = "", intro: bool = False) -> Tuple[str, dict]:
+    """Памятка canje. intro — письмо от админа тем, кто следит за canje: объясняем, почему бот молчит."""
+    lang = lang_of(chat)
+    head = tx(lang, "🔐 Ты следишь за <b>canje</b> в OkSita. DGT изменил порядок, поэтому бот не может присылать даты canje. Вот как записаться сейчас.\n\n",
+              "🔐 Ти стежиш за <b>canje</b> в OkSita. DGT змінив порядок, тому бот не може надсилати дати canje. Ось як записатися зараз.\n\n",
+              "🔐 Sigues el <b>canje</b> en OkSita. La DGT ha cambiado el proceso y el bot no puede avisarte de fechas de canje. Así se pide ahora.\n\n",
+              "🔐 You follow the <b>canje</b> in OkSita. DGT changed the process, so the bot can't send canje dates. Here's how to book now.\n\n") if intro else ""
+    text = head + tx(lang,
+                     "🪪 <b>Canje прав: как записаться сейчас</b>\n\n"
+                     "1️⃣ Подай заявку на странице canje DGT: NIE или NIF, дата рождения и страна, где выданы права.\n"
+                     "2️⃣ DGT проверит права в этой стране и через несколько дней сообщит результат.\n"
+                     "3️⃣ После проверки на той же странице выбираешь дату визита.\n\n"
+                     "💻 DGT советует подавать canje онлайн, через Cl@ve: тогда в офис идти не нужно.\n"
+                     "💶 Пошлину платят картой в офисе.\n\n"
+                     "<i>Личные данные вводишь только ты, на сайте DGT. Бот их не просит и не вводит.</i>",
+                     "🪪 <b>Canje прав: як записатися зараз</b>\n\n"
+                     "1️⃣ Подай заявку на сторінці canje DGT: NIE або NIF, дата народження і країна, де видані права.\n"
+                     "2️⃣ DGT перевірить права в цій країні й за кілька днів повідомить результат.\n"
+                     "3️⃣ Після перевірки на тій самій сторінці обираєш дату візиту.\n\n"
+                     "💻 DGT радить подавати canje онлайн, через Cl@ve: тоді в офіс іти не треба.\n"
+                     "💶 Збір сплачують карткою в офісі.\n\n"
+                     "<i>Особисті дані вводиш тільки ти, на сайті DGT. Бот їх не просить і не вводить.</i>",
+                     "🪪 <b>Canje del permiso: cómo pedir cita ahora</b>\n\n"
+                     "1️⃣ Presenta la solicitud en la página de canjes de la DGT: NIE o NIF, fecha de nacimiento y país que expidió el permiso.\n"
+                     "2️⃣ La DGT verifica el permiso con ese país y en unos días te comunica el resultado.\n"
+                     "3️⃣ Después, en la misma página, eliges la fecha de la cita.\n\n"
+                     "💻 La DGT recomienda pedir el canje online con Cl@ve: así no hace falta ir a la oficina.\n"
+                     "💶 La tasa se paga con tarjeta en la oficina.\n\n"
+                     "<i>Tus datos los introduces solo tú, en la web de la DGT. El bot no los pide ni los introduce.</i>",
+                     "🪪 <b>Licence canje: how to book now</b>\n\n"
+                     "1️⃣ Apply on the DGT canje page: NIE or NIF, date of birth and the country that issued your licence.\n"
+                     "2️⃣ DGT checks the licence with that country and tells you the result within a few days.\n"
+                     "3️⃣ After that, you choose the appointment date on the same page.\n\n"
+                     "💻 DGT recommends applying for the canje online with Cl@ve, so you don't need to visit an office.\n"
+                     "💶 The fee is paid by card at the office.\n\n"
+                     "<i>Only you enter your personal data, on the DGT website. The bot never asks for it or enters it.</i>")
+    at = store.get_chat(chat).get("canje_at") or 0
+    if at:
+        text += "\n\n" + tx(lang, f"⏰ Напомню проверить ответ DGT {short_date(lang, at + CANJE_WAIT * 86400)}.",
+                             f"⏰ Нагадаю перевірити відповідь DGT {short_date(lang, at + CANJE_WAIT * 86400)}.",
+                             f"⏰ Te recordaré revisar la respuesta de la DGT el {short_date(lang, at + CANJE_WAIT * 86400)}.",
+                             f"⏰ I'll remind you to check DGT's reply on {short_date(lang, at + CANJE_WAIT * 86400)}.")
+    if note:
+        text += f"\n\n{note}"
+    rows = [[url(tx(lang, "📝 Заявка на canje на сайте DGT", "📝 Заявка на canje на сайті DGT", "📝 Solicitud de canje en la DGT",
+                    "📝 Canje application at DGT"), CANJE_APPLY, "primary")],
+            [btn(tx(lang, "✖️ Не напоминать", "✖️ Не нагадувати", "✖️ No recordar", "✖️ Don't remind me"), "cj:x")] if at else
+            [btn(tx(lang, f"📨 Я подал заявку — напомни через {CANJE_WAIT} дня", f"📨 Я подав заявку — нагадай за {CANJE_WAIT} дні",
+                    f"📨 Ya la envié: recuérdamelo en {CANJE_WAIT} días", f"📨 I've applied: remind me in {CANJE_WAIT} days"), "cj:a", "success")],
+            [url(tx(lang, "💻 Canje онлайн и условия", "💻 Canje онлайн і умови", "💻 Canje online y requisitos", "💻 Online canje and rules"),
+                 CANJE_INFO), url(tx(lang, "🇺🇦 Права Украины", "🇺🇦 Права України", "🇺🇦 Permiso ucraniano", "🇺🇦 Ukrainian licence"), UA_CANJE)],
+            [btn(tx(lang, "➕ Следить за другой записью", "➕ Стежити за іншим записом", "➕ Seguir otra cita", "➕ Track another appointment"), "p:0"),
+             home_btn(lang)]]
+    return text, ikb(rows)
+
+
+def canje_reminder(chat: int) -> Tuple[str, dict]:
+    lang = lang_of(chat)
+    text = tx(lang, f"🪪 <b>Canje: прошло {CANJE_WAIT} дня с заявки</b>\n\nПроверь, ответил ли DGT. Когда права проверены, дату визита выбирают на той же странице canje.",
+              f"🪪 <b>Canje: минуло {CANJE_WAIT} дні від заявки</b>\n\nПеревір, чи відповів DGT. Коли права перевірені, дату візиту обирають на тій самій сторінці canje.",
+              f"🪪 <b>Canje: han pasado {CANJE_WAIT} días desde la solicitud</b>\n\nMira si la DGT ya ha respondido. Con el permiso verificado, la fecha se elige en la misma página de canjes.",
+              f"🪪 <b>Canje: {CANJE_WAIT} days since you applied</b>\n\nCheck whether DGT has replied. Once the licence is verified, you choose the date on the same canje page.")
+    return text, ikb([[url(tx(lang, "📝 Страница canje DGT", "📝 Сторінка canje DGT", "📝 Página de canjes DGT", "📝 DGT canje page"), CANJE_APPLY, "primary")],
+                      [btn(tx(lang, f"⏰ Ещё через {CANJE_WAIT} дня", f"⏰ Ще за {CANJE_WAIT} дні", f"⏰ Otra vez en {CANJE_WAIT} días",
+                              f"⏰ Again in {CANJE_WAIT} days"), "cj:a"), btn(tx(lang, "🪪 Памятка", "🪪 Пам’ятка", "🪪 Guía", "🪪 Guide"), "cj")]])
+
+
+def canje_chats() -> List[int]:
+    """Кто следит за canje и ещё не получал памятку от админа."""
+    chats = {s["chat"] for s in store.all_subs() if s["area"] == "CNJ" and not s.get("booked_date")}
+    return sorted(c for c in chats if not store.get_chat(c).get("canje_told")
+                  and store.get_chat(c).get("role") not in ("banned", "pending"))
 
 
 # ---------- Hour Star: второй бот автора ----------

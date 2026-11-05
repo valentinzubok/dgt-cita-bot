@@ -653,5 +653,66 @@ class PostLibrary(Base):
         self.assertFalse([p for p in sent("sendPhoto") if p["chat_id"] == "@oksita_news"])
 
 
+
+class Canje(Base):
+    """Canje: памятка, напоминание через 3 дня после заявки, письмо от админа каждому один раз."""
+
+    def canje_sub(self, chat, lang="ru"):
+        self.user(chat, lang)
+        sub, _ = store.add_sub(chat, "545", "CNJ", "Canjes")
+        store.update_sub(sub["id"], last=[{"status": "needs_data", "tramite": "x", "days": [], "hours": [], "address": "", "schedule": ""}])
+        store.set_chat(chat, canje_told=0, canje_at=0)
+        return store.get_sub(sub["id"])
+
+    def test_card_offers_canje_guide(self):
+        kb = json.dumps(views.card(self.canje_sub(6601))[1])
+        self.assertIn('"cj"', kb)
+        text, kb = views.canje_view(6601)
+        self.assertIn("canjes/inicio.faces", json.dumps(kb))
+        self.assertIn("cj:a", json.dumps(kb))
+
+    def test_reminder_after_three_days_once(self):
+        chat = 6602
+        self.canje_sub(chat, "uk")
+        bot.route_callback({"from": {"id": chat}}, chat, 40, "cj:a")
+        at = store.get_chat(chat)["canje_at"]
+        self.assertGreater(at, 0)
+        self.assertIn("⏰", self.shown()[-1]["text"])
+        self.assertIn("cj:x", json.dumps(self.shown()[-1]["kb"]))
+        checker.send_canje(at + 86400)
+        self.assertFalse([p for p in sent("sendMessage") if p["chat_id"] == chat], "рано")
+        checker.send_canje(at + 3 * 86400 + 1)
+        msgs = [p for p in sent("sendMessage") if p["chat_id"] == chat]
+        self.assertEqual(len(msgs), 1)
+        self.assertIn("canjes/inicio.faces", json.dumps(msgs[0]["reply_markup"]))
+        self.assertEqual(store.get_chat(chat)["canje_at"], 0)
+        checker.send_canje(at + 10 * 86400)
+        self.assertEqual(len([p for p in sent("sendMessage") if p["chat_id"] == chat]), 1, "один раз")
+        bot.route_callback({"from": {"id": chat}}, chat, 40, "cj:a")
+        bot.route_callback({"from": {"id": chat}}, chat, 40, "cj:x")
+        self.assertEqual(store.get_chat(chat)["canje_at"], 0)
+
+    def test_admin_sends_guide_once(self):
+        for chat in (6611, 6612):
+            self.canje_sub(chat)
+        self.assertTrue({6611, 6612} <= set(views.canje_chats()))
+        self.assertIn("ad:cj", json.dumps(admin.offices_view()[1]))
+        admin.on_callback(1, 9, "cj")
+        self.assertIn("ad:cj!", json.dumps(self.shown()[-1]["kb"]))
+        admin.on_callback(1, 9, "cj!")
+        got = {p["chat_id"] for p in sent("sendMessage")}
+        self.assertTrue({6611, 6612} <= got)
+        self.assertFalse(views.canje_chats())
+        self.assertNotIn("ad:cj", json.dumps(admin.offices_view()[1]))
+        calls.clear()
+        admin.on_callback(1, 9, "cj!")
+        self.assertFalse(sent("sendMessage"), "второй раз никому")
+
+    def test_deep_link_opens_guide(self):
+        chat = self.user(6621)
+        bot.open_section(chat, "canje")
+        self.assertIn("canje", self.shown()[-1]["text"])
+
+
 if __name__ == "__main__":
     unittest.main()

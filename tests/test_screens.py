@@ -132,6 +132,7 @@ class Screens(unittest.TestCase):
                 "pick_pas": views.place_pick(chat, "pas"), "pick_con": views.place_pick(chat, "con"), "window": views.window_alert(chat),
                 "spain": views.spain_view(chat), "types_madrid": views.doc_types(chat, "s", "28"),
                 "hourstar": views.hourstar_view(chat), "hourstar_sp": views.hourstar_view(chat, "sp"),
+                "canje": views.canje_view(chat, "заметка", True), "canje_reminder": views.canje_reminder(chat),
             }.items():
                 check(self, screen, f"{name}/{chat}")
             for status in ("ok", "merged", "daily", "muted"):
