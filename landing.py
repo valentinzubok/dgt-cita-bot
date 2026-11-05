@@ -256,13 +256,14 @@ background:linear-gradient(100deg,transparent,rgba(255,255,255,.45),transparent)
 @media(hover:hover){.step:hover,.feat:hover,.plan:hover,.review:hover,.stat:hover{transform:translateY(-4px);box-shadow:0 14px 34px rgba(22,22,40,.12),0 0 0 1px var(--line)}}
 @media(prefers-reduced-motion:reduce){.notif,.phone,.badge:before,.btn.main:after{animation:none}.js .rv{opacity:1;transform:none;transition:none}}
 """
-# Появление блоков при прокрутке и счёт цифр. Без JS (и у поисковиков) всё видно сразу: прячем только под классом js
+# Появление блоков при прокрутке и счёт цифр. Без JS (и у поисковиков) всё видно сразу: прячем только под классом js.
+# Первый экран не прячем: текст и кнопка «Открыть в Telegram» видны сразу, цифры на нём просто досчитываются
 JS = """<script>(function(){var d=document.documentElement;if(!("IntersectionObserver" in window)||matchMedia("(prefers-reduced-motion: reduce)").matches)return;
-d.classList.add("js");var items=document.querySelectorAll(".block>h2,.stat,.step,.feat,.plan,.review,details,.school,.list li,.lead,.ctas");
+d.classList.add("js");var items=document.querySelectorAll(".block>h2,.stat,.step,.feat,.plan,.review,details,.school,.list li"),vh=innerHeight;
 var io=new IntersectionObserver(function(es){es.forEach(function(e){if(!e.isIntersecting)return;var el=e.target;el.classList.add("in");io.unobserve(el);
 var b=el.classList.contains("stat")&&el.querySelector("b");if(b){var m=/^(\\d+)(.*)$/.exec(b.textContent);if(m){var n=+m[1],s=m[2],t0=performance.now();
 (function f(t){var k=Math.min(1,(t-t0)/900);b.textContent=Math.round(n*(1-Math.pow(1-k,3)))+s;if(k<1)requestAnimationFrame(f)})(t0)}}})},{threshold:.12});
-items.forEach(function(el,i){el.classList.add("rv");el.style.setProperty("--d",(i%4)*0.07+"s");io.observe(el)})})();</script>"""
+items.forEach(function(el,i){if(el.getBoundingClientRect().top>=vh){el.classList.add("rv");el.style.setProperty("--d",(i%4)*0.07+"s")}io.observe(el)})})();</script>"""
 
 
 def esc(s: object) -> str:

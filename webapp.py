@@ -458,6 +458,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Strict-Transport-Security", "max-age=31536000")
         for k, v in (headers or {}).items():
             self.send_header(k, v)
         self.end_headers()
@@ -484,7 +485,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _page(self, raw: bytes, ctype: str, age: int = 600) -> None:
         """Сайт и плакат автошколы: обычные страницы, сжатые, с кэшем на 10 минут."""
-        headers = {"Cache-Control": f"public, max-age={age}"}
+        headers = {"Cache-Control": f"public, max-age={age}", "X-Frame-Options": "DENY"}  # сайт не встраивают в чужие страницы
         if "gzip" in self.headers.get("Accept-Encoding", ""):
             headers["Content-Encoding"] = "gzip"
             raw = gzip.compress(raw, 6)
