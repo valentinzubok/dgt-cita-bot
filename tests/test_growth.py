@@ -66,6 +66,7 @@ class Base(unittest.TestCase):
         store.set_setting("channel_delay", 30)
         store.set_setting("post_job", 99)
         store.set_setting("post_ad", 249)
+        store.set_setting("hourstar_bot", "")
         channel._queue.clear()
         channel._posted.clear()
         channel._sent.update(at=0.0, day="", count=0)

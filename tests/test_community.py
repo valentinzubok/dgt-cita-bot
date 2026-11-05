@@ -533,6 +533,13 @@ class SpainExtras(Base):
 class HourStar(Base):
     """Второй бот автора: скрыт без имени, после — в меню, «Полезном», мини-приложении, на сайте и в рекламе."""
 
+    def setUp(self):
+        super().setUp()
+        store.set_setting("hourstar_bot", "")
+
+    def test_default_is_the_real_bot(self):
+        self.assertEqual(store.DEFAULTS["hourstar_bot"], "HourStarbot")
+
     def tearDown(self):
         super().tearDown()
         store.set_setting("hourstar_bot", "")
